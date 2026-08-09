@@ -3,6 +3,17 @@
 
 set -u
 
+# The registration inventory uses associative arrays. macOS still ships Bash
+# 3.2 in /bin, where those declarations can fail while the script continues
+# far enough to look successful. Reject that runtime before sourcing any
+# library or touching user state; Homebrew Bash and every supported CI runtime
+# satisfy this requirement.
+if ((BASH_VERSINFO[0] < 4)); then
+  printf 'gstack-register: Bash 4.0 or newer is required (found %s)\n' \
+    "$BASH_VERSION" >&2
+  exit 1
+fi
+
 _gstack_register_script_parent() {
   case "$1" in
     */*) printf '%s\n' "${1%/*}" ;;

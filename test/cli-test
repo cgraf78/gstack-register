@@ -21,6 +21,22 @@ work=$(_tmpdir)
 home="$work/home"
 mkdir -p "$home"
 
+# macOS ships /bin/bash 3.2 even when the CI job itself correctly selects a
+# newer Homebrew Bash. Exercise the public launcher's fail-fast guard wherever
+# that legacy interpreter is present, so an unsupported runtime can never
+# report success after a partial registration.
+if [[ -x /bin/bash ]] &&
+  (($(/bin/bash -c 'printf "%s\n" "${BASH_VERSINFO[0]}"') < 4)); then
+  set +e
+  HOME="$home" /bin/bash "$cli" --help \
+    >"$work/legacy-bash.out" 2>"$work/legacy-bash.err"
+  status=$?
+  set -e
+  _assert_exit "runtime: rejects unsupported Bash before dispatch" 1 "$status"
+  _assert_contains "runtime: unsupported Bash error is actionable" \
+    "Bash 4.0 or newer is required" "$(cat "$work/legacy-bash.err")"
+fi
+
 set +e
 HOME="$home" "$cli" >"$work/no-args.out" 2>"$work/no-args.err"
 status=$?
@@ -67,6 +83,12 @@ mock_bin="$work/bin"
 mkdir -p "$source_dir/qa" "$source_dir/browse" \
   "$xdg_config/gstack-register" "$mock_bin" \
   "$home/.claude/skills/manual"
+
+# The CLI uses `#!/usr/bin/env bash`, so keep the matrix-selected interpreter
+# reachable while isolating agent discovery below. In particular, omitting
+# Homebrew's bin directory on macOS would select Apple's unsupported Bash 3.2
+# and test a different runtime than the shared macOS job selected for us.
+test_path="$mock_bin:${BASH%/*}:/usr/bin:/bin"
 cat >"$source_dir/SKILL.md" <<'MD'
 ---
 name: gstack
@@ -108,7 +130,7 @@ HOME="$home" \
   XDG_DATA_HOME="$xdg_data" \
   XDG_STATE_HOME="$xdg_state" \
   XDG_CACHE_HOME="$xdg_cache" \
-  PATH="$mock_bin:/usr/bin:/bin" \
+  PATH="$test_path" \
   "$cli" sync >"$work/sync.out" 2>"$work/sync.err"
 _assert_exit "sync: succeeds with explicit XDG roots" 0 "$?"
 _assert_file_exists "sync: generates retained skill in XDG data" \
@@ -147,7 +169,7 @@ HOME="$home" \
   XDG_DATA_HOME="$xdg_data" \
   XDG_STATE_HOME="$xdg_state" \
   XDG_CACHE_HOME="$xdg_cache" \
-  PATH="$mock_bin:/usr/bin:/bin" \
+  PATH="$test_path" \
   "$cli" uninstall >"$work/uninstall.out" 2>"$work/uninstall.err"
 _assert_exit "uninstall: succeeds after source removal" 0 "$?"
 _assert_path_missing "uninstall: removes Claude registration" \
