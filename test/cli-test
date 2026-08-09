@@ -1,0 +1,208 @@
+#!/usr/bin/env bash
+# Public CLI, XDG, takeover, uninstall, and signal-cleanup behavior.
+
+set -o pipefail
+export NO_COLOR=1
+
+repo_root=$(cd "${BASH_SOURCE[0]%/*}/.." && pwd -P) || exit 1
+# shellcheck source=lib/test.sh
+. "$repo_root/test/lib/test.sh"
+
+cli="$repo_root/bin/gstack-register"
+
+help_output=$($cli --help 2>&1)
+_assert_exit "help: succeeds" 0 "$?"
+_assert_contains "help: documents sync" "sync" "$help_output"
+_assert_contains "help: documents uninstall" "uninstall" "$help_output"
+_assert_contains "help: documents XDG config" \
+  'XDG_CONFIG_HOME/gstack-register/skills-exclude' "$help_output"
+
+work=$(_tmpdir)
+home="$work/home"
+mkdir -p "$home"
+
+# macOS ships /bin/bash 3.2 even when the CI job itself correctly selects a
+# newer Homebrew Bash. Exercise the public launcher's fail-fast guard wherever
+# that legacy interpreter is present, so an unsupported runtime can never
+# report success after a partial registration.
+if [[ -x /bin/bash ]] &&
+  (($(/bin/bash -c 'printf "%s\n" "${BASH_VERSINFO[0]}"') < 4)); then
+  set +e
+  HOME="$home" /bin/bash "$cli" --help \
+    >"$work/legacy-bash.out" 2>"$work/legacy-bash.err"
+  status=$?
+  set -e
+  _assert_exit "runtime: rejects unsupported Bash before dispatch" 1 "$status"
+  _assert_contains "runtime: unsupported Bash error is actionable" \
+    "Bash 4.0 or newer is required" "$(cat "$work/legacy-bash.err")"
+fi
+
+set +e
+HOME="$home" "$cli" >"$work/no-args.out" 2>"$work/no-args.err"
+status=$?
+set -e
+_assert_exit "validation: missing command is rejected" 2 "$status"
+_assert_path_missing "validation: missing command mutates no data" \
+  "$home/.local/share/gstack-register"
+
+set +e
+HOME="$home" GSTACK_REGISTER_SOURCE_DIR=relative/source \
+  "$cli" sync >"$work/relative-source.out" 2>"$work/relative-source.err"
+status=$?
+set -e
+_assert_exit "source override: relative path is rejected" 1 "$status"
+_assert_contains "source override: error names the variable" \
+  "GSTACK_REGISTER_SOURCE_DIR" "$(cat "$work/relative-source.err")"
+
+# A relative XDG value is ignored instead of making output depend on cwd.
+path_output=$(HOME="$home" XDG_DATA_HOME=relative/data bash -c '
+  . "$1/lib/gstack-register/paths.sh"
+  gstack_register_source_dir
+' _ "$repo_root")
+_assert_eq "XDG data: relative value falls back to HOME" \
+  "$home/.local/share/garrytan/gstack" "$path_output"
+
+set +e
+# shellcheck disable=SC2016  # Positional parameters expand inside the child.
+env -u HOME -u XDG_DATA_HOME bash -c '
+  . "$1/lib/gstack-register/paths.sh"
+  gstack_register_source_dir
+' _ "$repo_root" >"$work/missing-home.out" 2>"$work/missing-home.err"
+status=$?
+set -e
+_assert_exit "path validation: missing HOME is rejected" 1 "$status"
+_assert_eq "path validation: missing HOME emits no partial path" \
+  "" "$(cat "$work/missing-home.out")"
+
+xdg_config="$work/config"
+xdg_data="$work/data"
+xdg_state="$work/state"
+xdg_cache="$work/cache"
+source_dir="$xdg_data/garrytan/gstack"
+mock_bin="$work/bin"
+mkdir -p "$source_dir/qa" "$source_dir/browse" \
+  "$xdg_config/gstack-register" "$mock_bin" \
+  "$home/.claude/skills/manual"
+
+# The CLI uses `#!/usr/bin/env bash`, so keep the matrix-selected interpreter
+# reachable while isolating agent discovery below. In particular, omitting
+# Homebrew's bin directory on macOS would select Apple's unsupported Bash 3.2
+# and test a different runtime than the shared macOS job selected for us.
+test_path="$mock_bin:${BASH%/*}:/usr/bin:/bin"
+cat >"$source_dir/SKILL.md" <<'MD'
+---
+name: gstack
+---
+MD
+cat >"$source_dir/qa/SKILL.md" <<'MD'
+---
+name: qa
+description: CLI fixture
+---
+MD
+cat >"$source_dir/browse/SKILL.md" <<'MD'
+---
+name: browse
+---
+MD
+printf 'browse\n' >"$xdg_config/gstack-register/skills-exclude"
+printf 'unmanaged\n' >"$home/.claude/skills/manual/SKILL.md"
+cat >"$mock_bin/codex" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+chmod +x "$mock_bin/codex"
+
+# Seed the exact historical paths and markers. Successful sync must first make
+# every agent link point at the new XDG tree, then retire only owned legacy data.
+mkdir -p "$home/.gstack/dotfiles-skills/gstack-qa" \
+  "$home/.gstack/dotfiles-opencode-skills"
+touch "$home/.gstack/dotfiles-skills/gstack-qa/.dotfiles-managed-gstack" \
+  "$home/.gstack/dotfiles-opencode-skills/.dotfiles-managed-gstack" \
+  "$home/.gstack/.dotfiles-registration-cache-v1" \
+  "$home/.gstack/.dot-agent-agnostic-install-v1"
+printf '%s\n' 'legacy' >"$home/.gstack/dotfiles-skills/gstack-qa/SKILL.md"
+ln -s "$home/.gstack/dotfiles-skills/gstack-qa" \
+  "$home/.claude/skills/gstack-qa"
+
+HOME="$home" \
+  XDG_CONFIG_HOME="$xdg_config" \
+  XDG_DATA_HOME="$xdg_data" \
+  XDG_STATE_HOME="$xdg_state" \
+  XDG_CACHE_HOME="$xdg_cache" \
+  PATH="$test_path" \
+  "$cli" sync >"$work/sync.out" 2>"$work/sync.err"
+_assert_exit "sync: succeeds with explicit XDG roots" 0 "$?"
+_assert_file_exists "sync: generates retained skill in XDG data" \
+  "$xdg_data/gstack-register/skills/gstack-qa/SKILL.md"
+_assert_file_missing "sync: excludes configured skill" \
+  "$xdg_data/gstack-register/skills/gstack-browse/SKILL.md"
+_assert_eq "sync: relinks Claude to the provider tree" \
+  "$xdg_data/gstack-register/skills/gstack-qa" \
+  "$(readlink "$home/.claude/skills/gstack-qa")"
+_assert_eq "sync: relinks Codex to the provider tree" \
+  "$xdg_data/gstack-register/skills/gstack-qa" \
+  "$(readlink "$home/.codex/skills/gstack-qa")"
+_assert_file_exists "sync: writes cache below XDG_CACHE_HOME" \
+  "$xdg_cache/gstack-register/registration-v1"
+_assert_file_exists "sync: records takeover below XDG_STATE_HOME" \
+  "$xdg_state/gstack-register/legacy-dotfiles-v1"
+_assert_path_missing "sync: removes retired shared generated tree" \
+  "$home/.gstack/dotfiles-skills"
+_assert_path_missing "sync: removes retired OpenCode generated tree" \
+  "$home/.gstack/dotfiles-opencode-skills"
+_assert_file_missing "sync: removes retired cache" \
+  "$home/.gstack/.dotfiles-registration-cache-v1"
+_assert_file_missing "sync: removes retired migration stamp" \
+  "$home/.gstack/.dot-agent-agnostic-install-v1"
+_assert_file_content "sync: preserves unmanaged agent content" \
+  "unmanaged" "$home/.claude/skills/manual/SKILL.md"
+
+# Uninstall must remain complete after shdeps has already removed the source
+# checkout. This is why ownership markers, not source enumeration, drive it.
+mkdir -p "$xdg_data/gstack-register/skills/manual"
+printf 'private generated-root content\n' \
+  >"$xdg_data/gstack-register/skills/manual/SKILL.md"
+mv "$source_dir" "$work/removed-source"
+HOME="$home" \
+  XDG_CONFIG_HOME="$xdg_config" \
+  XDG_DATA_HOME="$xdg_data" \
+  XDG_STATE_HOME="$xdg_state" \
+  XDG_CACHE_HOME="$xdg_cache" \
+  PATH="$test_path" \
+  "$cli" uninstall >"$work/uninstall.out" 2>"$work/uninstall.err"
+_assert_exit "uninstall: succeeds after source removal" 0 "$?"
+_assert_path_missing "uninstall: removes Claude registration" \
+  "$home/.claude/skills/gstack-qa"
+_assert_path_missing "uninstall: removes Codex registration" \
+  "$home/.codex/skills/gstack-qa"
+_assert_path_missing "uninstall: removes generated skill" \
+  "$xdg_data/gstack-register/skills/gstack-qa"
+_assert_file_content "uninstall: preserves unknown generated-root content" \
+  "private generated-root content" \
+  "$xdg_data/gstack-register/skills/manual/SKILL.md"
+_assert_file_missing "uninstall: removes provider cache" \
+  "$xdg_cache/gstack-register/registration-v1"
+_assert_file_exists "uninstall: preserves config policy" \
+  "$xdg_config/gstack-register/skills-exclude"
+_assert_file_content "uninstall: still preserves unmanaged content" \
+  "unmanaged" "$home/.claude/skills/manual/SKILL.md"
+
+# The launcher owns its signal traps. A terminal signal must preserve the
+# conventional status and remove every registered scratch path.
+signal_path_file="$work/signal-path"
+set +e
+bash -c '
+  . "$1/lib/gstack-register/temp.sh"
+  _gstack_register_install_temp_traps
+  _gstack_register_sibling_tmp_for "$2/probe"
+  printf "%s\n" "$REPLY" >"$3"
+  kill -TERM "$$"
+' _ "$repo_root" "$work" "$signal_path_file"
+status=$?
+set -e
+_assert_exit "signal cleanup: preserves TERM status" 143 "$status"
+signal_path=$(cat "$signal_path_file")
+_assert_path_missing "signal cleanup: removes tracked scratch" "$signal_path"
+
+_test_summary

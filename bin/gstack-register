@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# Dependency-free gstack skill registration for supported coding agents.
+
+set -u
+
+# The registration inventory uses associative arrays. macOS still ships Bash
+# 3.2 in /bin, where those declarations can fail while the script continues
+# far enough to look successful. Reject that runtime before sourcing any
+# library or touching user state; Homebrew Bash and every supported CI runtime
+# satisfy this requirement.
+if ((BASH_VERSINFO[0] < 4)); then
+  printf 'gstack-register: Bash 4.0 or newer is required (found %s)\n' \
+    "$BASH_VERSION" >&2
+  exit 1
+fi
+
+_gstack_register_script_parent() {
+  case "$1" in
+    */*) printf '%s\n' "${1%/*}" ;;
+    *) printf '.\n' ;;
+  esac
+}
+
+_gstack_register_script_dir() {
+  local path="$1" dir target
+
+  # The installer and shdeps expose this launcher through a symlink. Follow
+  # every portable readlink hop so the command and its private library always
+  # come from one checkout and cannot drift independently.
+  case "$path" in
+    */*) ;;
+    *) path=$(command -v "$path") || return 1 ;;
+  esac
+  while [[ -L "$path" ]]; do
+    dir=$(cd -P -- "$(_gstack_register_script_parent "$path")" && pwd) || return 1
+    target=$(readlink "$path") || return 1
+    [[ "$target" == /* ]] || target="$dir/$target"
+    path="$target"
+  done
+  cd -P -- "$(_gstack_register_script_parent "$path")" && pwd
+}
+
+_GSTACK_REGISTER_BIN_DIR=$(_gstack_register_script_dir "${BASH_SOURCE[0]}") || {
+  printf 'gstack-register: cannot resolve the installation directory\n' >&2
+  exit 1
+}
+_GSTACK_REGISTER_LIB_DIR=$(cd "$_GSTACK_REGISTER_BIN_DIR/../lib/gstack-register" && pwd -P) || {
+  printf 'gstack-register: private library is not installed\n' >&2
+  exit 1
+}
+
+# shellcheck source=../lib/gstack-register/api.sh
+. "$_GSTACK_REGISTER_LIB_DIR/api.sh"
+
+usage() {
+  cat <<'EOF'
+Usage: gstack-register <command>
+
+Commands:
+  sync       Generate and repair gstack registrations for installed agents.
+  uninstall  Remove only registrations and generated data owned by this tool.
+
+Configuration:
+  $XDG_CONFIG_HOME/gstack-register/skills-exclude
+
+The config root falls back to $HOME/.config when XDG_CONFIG_HOME is unset or
+relative. GSTACK_REGISTER_SOURCE_DIR, GSTACK_REGISTER_SKILL_EXCLUDE_FILE, and
+GSTACK_REGISTER_OPENCODE_COMMAND provide explicit integration overrides.
+EOF
+}
+
+main() {
+  local command=${1:-}
+
+  case "$command" in
+    -h | --help)
+      [[ "$#" -eq 1 ]] || {
+        usage >&2
+        return 2
+      }
+      usage
+      ;;
+    sync)
+      [[ "$#" -eq 1 ]] || {
+        usage >&2
+        return 2
+      }
+      _gstack_register_install_temp_traps
+      gstack_register_sync
+      ;;
+    uninstall)
+      [[ "$#" -eq 1 ]] || {
+        usage >&2
+        return 2
+      }
+      _gstack_register_install_temp_traps
+      gstack_register_uninstall
+      ;;
+    *)
+      usage >&2
+      return 2
+      ;;
+  esac
+}
+
+main "$@"

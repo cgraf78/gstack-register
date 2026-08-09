@@ -1,0 +1,20 @@
+# type<TAB>repository-relative path
+program	bin/gstack-register
+program	install.sh
+program	lib/gstack-register/api.sh
+program	lib/gstack-register/cache.sh
+program	lib/gstack-register/generated.sh
+program	lib/gstack-register/managed.sh
+program	lib/gstack-register/migration.sh
+program	lib/gstack-register/opencode.sh
+program	lib/gstack-register/paths.sh
+program	lib/gstack-register/source.sh
+program	lib/gstack-register/targets.sh
+program	lib/gstack-register/temp.sh
+program	test/cli-test
+program	test/gstack-agents-test
+program	test/gstack-opencode-test
+program	test/gstack-register-test
+program	test/install-test
+program	test/lib/test.sh
+program	test/run
