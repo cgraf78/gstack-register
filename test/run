@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Run each standalone behavior suite from the repository root.
+
+set -u
+
+repo_root=$(cd "${BASH_SOURCE[0]%/*}/.." && pwd -P) || exit 1
+status=0
+
+for suite in \
+  "$repo_root/test/gstack-register-test" \
+  "$repo_root/test/gstack-opencode-test" \
+  "$repo_root/test/gstack-agents-test"; do
+  printf '=== %s ===\n' "${suite##*/}"
+  "$suite" || status=1
+done
+
+exit "$status"
