@@ -12,7 +12,6 @@ repo_root=$(cd "${BASH_SOURCE[0]%/*}/.." && pwd -P) || exit 1
 
 REAL_HOME=$repo_root
 
-_gstack_hook="$REAL_HOME/test/legacy/gstack-shdeps-hook.sh"
 _gstack_home=$(_tmpdir)
 _gstack_repo="$_gstack_home/.local/share/garrytan/gstack"
 mkdir -p "$_gstack_repo/bin" "$_gstack_repo/qa" "$_gstack_repo/review" \
@@ -116,126 +115,119 @@ _saved_path=$PATH
 HOME=$_gstack_home
 PATH="$_gstack_agent_bin:$PATH"
 export GSTACK_HOOK_LOG=$_gstack_log
-export DOT_GSTACK_REGISTER_LIB="$REAL_HOME/lib/gstack-register/api.sh"
-# shellcheck disable=SC2329  # sourced hook helper calls this by name.
-shdeps_warn() { printf '%s\n' "$*" >&2; }
 
-# shellcheck source=/dev/null
-. "$_gstack_hook"
+# shellcheck source=../lib/gstack-register/api.sh
+. "$REAL_HOME/lib/gstack-register/api.sh"
 
-if post "garrytan/gstack"; then
-  _pass "gstack: post hook registers skills"
+if gstack_register_sync; then
+  _pass "gstack: sync registers skills"
 else
-  _fail "gstack: post hook registers skills"
+  _fail "gstack: sync registers skills"
 fi
-_assert_eq "gstack: post hook does not run upstream setup" "" "$(cat "$_gstack_log" 2>/dev/null)"
-_assert_file_missing "gstack: post hook removes Claude compatibility root" \
+_assert_eq "gstack: sync does not run upstream setup" "" "$(cat "$_gstack_log" 2>/dev/null)"
+_assert_file_missing "gstack: sync removes Claude compatibility root" \
   "$_gstack_home/.claude/skills/gstack/SKILL.md"
-_assert_file_missing "gstack: post hook removes legacy Claude connect-chrome alias" \
+_assert_file_missing "gstack: sync removes legacy Claude connect-chrome alias" \
   "$_gstack_home/.claude/skills/connect-chrome"
-_assert_file_exists "gstack: post hook creates shared generated skill" \
-  "$_gstack_home/.gstack/dotfiles-skills/gstack-qa/SKILL.md"
-_assert_file_exists "gstack: post hook creates shared Gemini context" \
-  "$_gstack_home/.gstack/dotfiles-skills/GEMINI.md"
-_assert_file_exists "gstack: post hook marks shared generated skill as managed" \
-  "$_gstack_home/.gstack/dotfiles-skills/gstack-qa/.dotfiles-managed-gstack"
-_assert_file_exists "gstack: post hook links prefixed Claude skill" \
+_assert_file_exists "gstack: sync creates shared generated skill" \
+  "$_gstack_home/.local/share/gstack-register/skills/gstack-qa/SKILL.md"
+_assert_file_exists "gstack: sync creates shared Gemini context" \
+  "$_gstack_home/.local/share/gstack-register/skills/GEMINI.md"
+_assert_file_exists "gstack: sync marks shared generated skill as managed" \
+  "$_gstack_home/.local/share/gstack-register/skills/gstack-qa/.gstack-register-managed"
+_assert_file_exists "gstack: sync links prefixed Claude skill" \
   "$_gstack_home/.claude/skills/gstack-qa/SKILL.md"
-_assert_eq "gstack: post hook points Claude skill at shared generated skill" \
-  "$_gstack_home/.gstack/dotfiles-skills/gstack-qa" \
+_assert_eq "gstack: sync points Claude skill at shared generated skill" \
+  "$_gstack_home/.local/share/gstack-register/skills/gstack-qa" \
   "$(readlink "$_gstack_home/.claude/skills/gstack-qa")"
-_assert_file_missing "gstack: post hook removes legacy unprefixed Claude skill" \
+_assert_file_missing "gstack: sync removes legacy unprefixed Claude skill" \
   "$_gstack_home/.claude/skills/qa/SKILL.md"
-_assert_contains "gstack: post hook preserves unmanaged Claude skill collision" \
+_assert_contains "gstack: sync preserves unmanaged Claude skill collision" \
   "name: manual-owned" "$(cat "$_gstack_home/.claude/skills/manual/SKILL.md")"
-_assert_file_missing "gstack: post hook prunes stale Claude gstack link" \
+_assert_file_missing "gstack: sync prunes stale Claude gstack link" \
   "$_gstack_home/.claude/skills/checkpoint"
-_assert_file_missing "gstack: post hook prunes legacy unprefixed Codex copy" \
+_assert_file_missing "gstack: sync prunes legacy unprefixed Codex copy" \
   "$_gstack_home/.codex/skills/qa/SKILL.md"
-_assert_file_exists "gstack: post hook preserves unmanaged Codex skill with prose marker" \
+_assert_file_exists "gstack: sync preserves unmanaged Codex skill with prose marker" \
   "$_gstack_home/.codex/skills/review/SKILL.md"
-_assert_file_missing "gstack: post hook prunes removed-source legacy Codex copy" \
+_assert_file_missing "gstack: sync prunes removed-source legacy Codex copy" \
   "$_gstack_home/.codex/skills/removed/SKILL.md"
-_assert_file_missing "gstack: post hook prunes stale managed Codex skill" \
+_assert_file_missing "gstack: sync prunes stale managed Codex skill" \
   "$_gstack_home/.codex/skills/gstack-old/SKILL.md"
-_assert_file_exists "gstack: post hook links Codex source skill" \
+_assert_file_exists "gstack: sync links Codex source skill" \
   "$_gstack_home/.codex/skills/gstack-qa/SKILL.md"
-_assert_eq "gstack: post hook points Codex skill at shared generated skill" \
-  "$_gstack_home/.gstack/dotfiles-skills/gstack-qa" \
+_assert_eq "gstack: sync points Codex skill at shared generated skill" \
+  "$_gstack_home/.local/share/gstack-register/skills/gstack-qa" \
   "$(readlink "$_gstack_home/.codex/skills/gstack-qa")"
-_assert_file_exists "gstack: post hook marks Codex source skill as managed" \
-  "$_gstack_home/.codex/skills/gstack-qa/.dotfiles-managed-gstack"
-_assert_file_missing "gstack: post hook removes legacy Codex runtime root" \
+_assert_file_exists "gstack: sync marks Codex source skill as managed" \
+  "$_gstack_home/.codex/skills/gstack-qa/.gstack-register-managed"
+_assert_file_missing "gstack: sync removes legacy Codex runtime root" \
   "$_gstack_home/.codex/skills/gstack/SKILL.md"
-_assert_contains "gstack: post hook rewrites Codex skill name" \
+_assert_contains "gstack: sync rewrites Codex skill name" \
   "name: gstack-qa" "$(cat "$_gstack_home/.codex/skills/gstack-qa/SKILL.md")"
-_assert_contains "gstack: post hook quotes invalid Codex YAML descriptions" \
+_assert_contains "gstack: sync quotes invalid Codex YAML descriptions" \
   'description: "QA workflow: catches visual regressions. (gstack)"' \
   "$(cat "$_gstack_home/.codex/skills/gstack-qa/SKILL.md")"
-_assert_contains "gstack: post hook rewrites absolute Claude runtime paths" \
+_assert_contains "gstack: sync rewrites absolute Claude runtime paths" \
   "Run $_gstack_repo/bin/gstack-config" \
-  "$(cat "$_gstack_home/.gstack/dotfiles-skills/gstack-qa/SKILL.md")"
-_assert_contains "gstack: post hook preserves project-relative vendored checks" \
+  "$(cat "$_gstack_home/.local/share/gstack-register/skills/gstack-qa/SKILL.md")"
+_assert_contains "gstack: sync preserves project-relative vendored checks" \
   ".claude/skills/gstack vendored checks local" \
-  "$(cat "$_gstack_home/.gstack/dotfiles-skills/gstack-qa/SKILL.md")"
-_assert_file_exists "gstack: post hook creates Gemini extension manifest" \
+  "$(cat "$_gstack_home/.local/share/gstack-register/skills/gstack-qa/SKILL.md")"
+_assert_file_exists "gstack: sync creates Gemini extension manifest" \
   "$_gstack_home/.gemini/extensions/gstack/gemini-extension.json"
-_assert_file_exists "gstack: post hook marks Gemini extension as managed" \
-  "$_gstack_home/.gemini/extensions/gstack/.dotfiles-managed-gstack"
-_assert_eq "gstack: post hook points Gemini context at shared generated context" \
-  "$_gstack_home/.gstack/dotfiles-skills/GEMINI.md" \
+_assert_file_exists "gstack: sync marks Gemini extension as managed" \
+  "$_gstack_home/.gemini/extensions/gstack/.gstack-register-managed"
+_assert_eq "gstack: sync points Gemini context at shared generated context" \
+  "$_gstack_home/.local/share/gstack-register/skills/GEMINI.md" \
   "$(readlink "$_gstack_home/.gemini/extensions/gstack/GEMINI.md")"
 _assert_contains "gstack: generated Gemini context references prefixed skills" \
   "generated \`gstack-*\` agent" \
-  "$(cat "$_gstack_home/.gstack/dotfiles-skills/GEMINI.md")"
+  "$(cat "$_gstack_home/.local/share/gstack-register/skills/GEMINI.md")"
 # shellcheck disable=SC2088  # This assertion intentionally checks literal upstream prose.
 _assert_not_contains "gstack: generated Gemini context avoids raw Claude runtime paths" \
   '~/.claude/skills/gstack' \
-  "$(cat "$_gstack_home/.gstack/dotfiles-skills/GEMINI.md")"
-_assert_file_exists "gstack: post hook links Gemini source skill" \
+  "$(cat "$_gstack_home/.local/share/gstack-register/skills/GEMINI.md")"
+_assert_file_exists "gstack: sync links Gemini source skill" \
   "$_gstack_home/.gemini/extensions/gstack/skills/gstack-qa/SKILL.md"
-_assert_eq "gstack: post hook points Gemini skill at shared generated skill" \
-  "$_gstack_home/.gstack/dotfiles-skills/gstack-qa" \
+_assert_eq "gstack: sync points Gemini skill at shared generated skill" \
+  "$_gstack_home/.local/share/gstack-register/skills/gstack-qa" \
   "$(readlink "$_gstack_home/.gemini/extensions/gstack/skills/gstack-qa")"
-_assert_file_exists "gstack: post hook marks Gemini source skill as managed" \
-  "$_gstack_home/.gemini/extensions/gstack/skills/gstack-qa/.dotfiles-managed-gstack"
-_assert_contains "gstack: post hook rewrites Gemini skill name" \
+_assert_file_exists "gstack: sync marks Gemini source skill as managed" \
+  "$_gstack_home/.gemini/extensions/gstack/skills/gstack-qa/.gstack-register-managed"
+_assert_contains "gstack: sync rewrites Gemini skill name" \
   "name: gstack-qa" "$(cat "$_gstack_home/.gemini/extensions/gstack/skills/gstack-qa/SKILL.md")"
-_assert_contains "gstack: post hook quotes invalid Gemini YAML descriptions" \
+_assert_contains "gstack: sync quotes invalid Gemini YAML descriptions" \
   'description: "QA workflow: catches visual regressions. (gstack)"' \
   "$(cat "$_gstack_home/.gemini/extensions/gstack/skills/gstack-qa/SKILL.md")"
-_assert_contains "gstack: post hook leaves upstream source skill unchanged" \
+_assert_contains "gstack: sync leaves upstream source skill unchanged" \
   "description: QA workflow: catches visual regressions. (gstack)" \
   "$(cat "$_gstack_repo/qa/SKILL.md")"
-_assert_file_missing "gstack: post hook skips node_modules skills" \
+_assert_file_missing "gstack: sync skips node_modules skills" \
   "$_gstack_home/.claude/skills/gstack-ignored/SKILL.md"
-_assert_file_missing "gstack: post hook skips node_modules generated cache" \
-  "$_gstack_home/.gstack/dotfiles-skills/gstack-ignored/SKILL.md"
-_assert_file_exists "gstack: post hook stamps install-shape migration" \
-  "$_gstack_home/.gstack/.dot-agent-agnostic-install-v1"
+_assert_file_missing "gstack: sync skips node_modules generated cache" \
+  "$_gstack_home/.local/share/gstack-register/skills/gstack-ignored/SKILL.md"
+_assert_file_exists "gstack: sync stamps install-shape migration" \
+  "$_gstack_home/.local/state/gstack-register/legacy-dotfiles-v1"
 if [[ -d "$_gstack_home/.gstack" && ! -L "$_gstack_home/.gstack" ]]; then
-  _pass "gstack: post hook uses real state directory"
+  _pass "gstack: sync uses real state directory"
 else
-  _fail "gstack: post hook uses real state directory"
+  _fail "gstack: sync uses real state directory"
 fi
 
-# Warm re-arming is a dot-convergence optimization. Load the same signal-safe
-# resource owner that core dot uses before exercising its timestamp fence;
-# standalone shdeps hook calls deliberately validate without creating an
-# unowned temporary file.
-# shellcheck source=legacy/cache-resources.sh disable=SC1091
-. "$REAL_HOME/test/legacy/cache-resources.sh"
+# Warm re-arming is a convergence optimization. The standalone provider owns
+# its scratch allocator, so this exercises the same path without dot internals.
 
-eval "$(declare -f _dot_gstack_register_claude |
-  sed '1s/_dot_gstack_register_claude/_orig_dot_gstack_register_claude/')"
-eval "$(declare -f _dot_gstack_register_codex |
-  sed '1s/_dot_gstack_register_codex/_orig_dot_gstack_register_codex/')"
-eval "$(declare -f _dot_gstack_register_gemini |
-  sed '1s/_dot_gstack_register_gemini/_orig_dot_gstack_register_gemini/')"
-eval "$(declare -f _dot_gstack_source_fingerprint |
-  sed '1s/_dot_gstack_source_fingerprint/_orig_dot_gstack_source_fingerprint/')"
-eval "$(declare -f _dot_gstack_target_fingerprint |
-  sed '1s/_dot_gstack_target_fingerprint/_orig_dot_gstack_target_fingerprint/')"
+eval "$(declare -f _gstack_register_claude |
+  sed '1s/_gstack_register_claude/_orig_gstack_register_claude/')"
+eval "$(declare -f _gstack_register_codex |
+  sed '1s/_gstack_register_codex/_orig_gstack_register_codex/')"
+eval "$(declare -f _gstack_register_gemini |
+  sed '1s/_gstack_register_gemini/_orig_gstack_register_gemini/')"
+eval "$(declare -f _gstack_register_source_fingerprint |
+  sed '1s/_gstack_register_source_fingerprint/_orig_gstack_register_source_fingerprint/')"
+eval "$(declare -f _gstack_register_target_fingerprint |
+  sed '1s/_gstack_register_target_fingerprint/_orig_gstack_register_target_fingerprint/')"
 _gstack_full_register_log=$(_tmpdir)/gstack-full-register.log
 _gstack_fingerprint_log=$(_tmpdir)/gstack-fingerprint.log
 _gstack_fingerprint_race_marker=$(_tmpdir)/gstack-fingerprint-race
@@ -252,23 +244,23 @@ _gstack_touch_newer_than() {
     sleep 0.05
   done
 }
-# shellcheck disable=SC2329  # dot_gstack_register_all invokes this by name.
-_dot_gstack_register_claude() {
+# shellcheck disable=SC2329  # gstack_register_sync invokes this by name.
+_gstack_register_claude() {
   printf 'claude\n' >>"$_gstack_full_register_log"
-  _orig_dot_gstack_register_claude "$@"
+  _orig_gstack_register_claude "$@"
 }
-# shellcheck disable=SC2329  # dot_gstack_register_all invokes this by name.
-_dot_gstack_register_codex() {
+# shellcheck disable=SC2329  # gstack_register_sync invokes this by name.
+_gstack_register_codex() {
   printf 'codex\n' >>"$_gstack_full_register_log"
-  _orig_dot_gstack_register_codex "$@"
+  _orig_gstack_register_codex "$@"
 }
-# shellcheck disable=SC2329  # dot_gstack_register_all invokes this by name.
-_dot_gstack_register_gemini() {
+# shellcheck disable=SC2329  # gstack_register_sync invokes this by name.
+_gstack_register_gemini() {
   printf 'gemini\n' >>"$_gstack_full_register_log"
-  _orig_dot_gstack_register_gemini "$@"
+  _orig_gstack_register_gemini "$@"
 }
-# shellcheck disable=SC2329  # dot_gstack_register_all invokes this by name.
-_dot_gstack_source_fingerprint() {
+# shellcheck disable=SC2329  # gstack_register_sync invokes this by name.
+_gstack_register_source_fingerprint() {
   local fence
   printf 'source\n' >>"$_gstack_fingerprint_log"
   if [[ -f "$_gstack_fingerprint_race_marker" ]]; then
@@ -278,21 +270,21 @@ _dot_gstack_source_fingerprint() {
     # to model a concurrent mutation without relying on clock resolution. The
     # glob deliberately mirrors cache.sh's allocator template; divergence fails
     # the later "forces one more proof" assertion rather than weakening it.
-    for fence in "$_gstack_home/.gstack/.dotfiles-registration-cache-v1.rearm.tmp."*; do
+    for fence in "$_gstack_home/.cache/gstack-register/registration-v1.rearm.tmp."*; do
       [[ -f "$fence" ]] || continue
       _gstack_touch_newer_than "$_gstack_home/.claude/skills" "$fence" || return 1
       break
     done
   fi
-  _orig_dot_gstack_source_fingerprint "$@"
+  _orig_gstack_register_source_fingerprint "$@"
 }
-# shellcheck disable=SC2329  # dot_gstack_register_all invokes this by name.
-_dot_gstack_target_fingerprint() {
+# shellcheck disable=SC2329  # gstack_register_sync invokes this by name.
+_gstack_register_target_fingerprint() {
   printf 'target\n' >>"$_gstack_fingerprint_log"
-  _orig_dot_gstack_target_fingerprint "$@"
+  _orig_gstack_register_target_fingerprint "$@"
 }
 
-if dot_gstack_register_all; then
+if gstack_register_sync; then
   _pass "gstack: current registration cache check succeeds"
 else
   _fail "gstack: current registration cache check succeeds"
@@ -309,14 +301,14 @@ _assert_eq "gstack: current registration skips fingerprint scans" \
 # repeat the same expensive scan indefinitely.
 if _gstack_touch_newer_than \
   "$_gstack_home/.claude/skills" \
-  "$_gstack_home/.gstack/.dotfiles-registration-cache-v1"; then
+  "$_gstack_home/.cache/gstack-register/registration-v1"; then
   _pass "gstack: test invalidation is newer than the cache"
 else
   _fail "gstack: test invalidation is newer than the cache"
 fi
 : >"$_gstack_full_register_log"
 : >"$_gstack_fingerprint_log"
-if dot_gstack_register_all; then
+if gstack_register_sync; then
   _pass "gstack: unchanged parent mtime invalidation validates successfully"
 else
   _fail "gstack: unchanged parent mtime invalidation validates successfully"
@@ -326,7 +318,7 @@ _assert_eq "gstack: unchanged parent mtime does not rewrite registrations" \
 _assert_contains "gstack: unchanged parent mtime performs one fingerprint proof" \
   "source" "$(cat "$_gstack_fingerprint_log")"
 : >"$_gstack_fingerprint_log"
-if dot_gstack_register_all; then
+if gstack_register_sync; then
   _pass "gstack: validated parent mtime re-arms the watch cache"
 else
   _fail "gstack: validated parent mtime re-arms the watch cache"
@@ -339,22 +331,22 @@ _assert_eq "gstack: re-armed watch cache skips repeated fingerprint scans" \
 # only that race-free proof may restore the watch fast path.
 if _gstack_touch_newer_than \
   "$_gstack_home/.claude/skills" \
-  "$_gstack_home/.gstack/.dotfiles-registration-cache-v1"; then
+  "$_gstack_home/.cache/gstack-register/registration-v1"; then
   _pass "gstack: race fixture starts with an invalidated cache"
 else
   _fail "gstack: race fixture starts with an invalidated cache"
 fi
 : >"$_gstack_fingerprint_race_marker"
 : >"$_gstack_fingerprint_log"
-dot_gstack_register_all || _fail "gstack: concurrent invalidation validates successfully"
+gstack_register_sync || _fail "gstack: concurrent invalidation validates successfully"
 _assert_contains "gstack: concurrent invalidation performs fingerprint proof" \
   "source" "$(cat "$_gstack_fingerprint_log")"
 : >"$_gstack_fingerprint_log"
-dot_gstack_register_all || _fail "gstack: concurrent invalidation remains visible"
+gstack_register_sync || _fail "gstack: concurrent invalidation remains visible"
 _assert_contains "gstack: concurrent invalidation forces one more proof" \
   "source" "$(cat "$_gstack_fingerprint_log")"
 : >"$_gstack_fingerprint_log"
-dot_gstack_register_all || _fail "gstack: race-free proof re-arms cache"
+gstack_register_sync || _fail "gstack: race-free proof re-arms cache"
 _assert_eq "gstack: race-free proof restores watch fast path" \
   "" "$(cat "$_gstack_fingerprint_log")"
 
@@ -365,22 +357,22 @@ _assert_eq "gstack: race-free proof restores watch fast path" \
 # cache and leaves no sibling scratch behind.
 if _gstack_touch_newer_than \
   "$_gstack_home/.claude/skills" \
-  "$_gstack_home/.gstack/.dotfiles-registration-cache-v1"; then
+  "$_gstack_home/.cache/gstack-register/registration-v1"; then
   _pass "gstack: nested hook fixture starts with an invalidated cache"
 else
   _fail "gstack: nested hook fixture starts with an invalidated cache"
 fi
 : >"$_gstack_fingerprint_log"
-(dot_gstack_register_all) || _fail "gstack: nested hook validation succeeds"
+(gstack_register_sync) || _fail "gstack: nested hook validation succeeds"
 _assert_contains "gstack: nested hook performs fingerprint proof" \
   "source" "$(cat "$_gstack_fingerprint_log")"
 : >"$_gstack_fingerprint_log"
-dot_gstack_register_all || _fail "gstack: nested hook re-arms cache"
+gstack_register_sync || _fail "gstack: nested hook re-arms cache"
 _assert_eq "gstack: nested hook restores watch fast path" \
   "" "$(cat "$_gstack_fingerprint_log")"
 _gstack_rearm_scratch=''
 for _gstack_rearm_candidate in \
-  "$_gstack_home/.gstack/.dotfiles-registration-cache-v1.rearm.tmp."*; do
+  "$_gstack_home/.cache/gstack-register/registration-v1.rearm.tmp."*; do
   [[ -e "$_gstack_rearm_candidate" ]] || continue
   _gstack_rearm_scratch=$_gstack_rearm_candidate
   break
@@ -389,9 +381,9 @@ _assert_eq "gstack: nested hook removes re-arm scratch" "" "$_gstack_rearm_scrat
 
 ln -sfn "$_gstack_repo" "$_gstack_home/.claude/skills/gstack"
 ln -sfn gstack/open-gstack-browser "$_gstack_home/.claude/skills/connect-chrome"
-touch -r "$_gstack_home/.gstack/.dotfiles-registration-cache-v1" "$_gstack_home/.claude/skills"
+touch -r "$_gstack_home/.cache/gstack-register/registration-v1" "$_gstack_home/.claude/skills"
 : >"$_gstack_full_register_log"
-if dot_gstack_register_all; then
+if gstack_register_sync; then
   _pass "gstack: cache miss repairs recreated Claude compatibility roots"
 else
   _fail "gstack: cache miss repairs recreated Claude compatibility roots"
@@ -403,9 +395,9 @@ _assert_file_missing "gstack: cache miss removes recreated Claude compatibility 
 _assert_file_missing "gstack: cache miss removes recreated connect-chrome alias" \
   "$_gstack_home/.claude/skills/connect-chrome"
 
-touch -t 200001010000.00 "$_gstack_home/.gstack/.dotfiles-registration-cache-v1"
+touch -t 200001010000.00 "$_gstack_home/.cache/gstack-register/registration-v1"
 : >"$_gstack_full_register_log"
-if dot_gstack_register_all; then
+if gstack_register_sync; then
   _pass "gstack: target freshness check succeeds"
 else
   _fail "gstack: target freshness check succeeds"
@@ -415,7 +407,7 @@ _assert_contains "gstack: target newer than cache forces validation" \
 
 rm -f "$_gstack_home/.codex/skills/gstack-qa/SKILL.md"
 : >"$_gstack_full_register_log"
-if dot_gstack_register_all; then
+if gstack_register_sync; then
   _pass "gstack: cache miss repairs missing generated skill"
 else
   _fail "gstack: cache miss repairs missing generated skill"
@@ -429,9 +421,9 @@ for i in {1..20}; do
   mkdir -p "$_gstack_home/.claude/skills/stale-$i" \
     "$_gstack_home/.codex/skills/gstack-stale-$i" \
     "$_gstack_home/.gemini/extensions/gstack/skills/gstack-stale-$i"
-  touch "$_gstack_home/.claude/skills/stale-$i/.dotfiles-managed-gstack" \
-    "$_gstack_home/.codex/skills/gstack-stale-$i/.dotfiles-managed-gstack" \
-    "$_gstack_home/.gemini/extensions/gstack/skills/gstack-stale-$i/.dotfiles-managed-gstack"
+  touch "$_gstack_home/.claude/skills/stale-$i/.gstack-register-managed" \
+    "$_gstack_home/.codex/skills/gstack-stale-$i/.gstack-register-managed" \
+    "$_gstack_home/.gemini/extensions/gstack/skills/gstack-stale-$i/.gstack-register-managed"
   cat >"$_gstack_home/.claude/skills/stale-$i/SKILL.md" <<MD
 ---
 name: stale-$i
@@ -449,18 +441,18 @@ name: gstack-stale-$i
 MD
 done
 
-eval "$(declare -f _dot_gstack_each_source_skill |
-  sed '1s/_dot_gstack_each_source_skill/_orig_dot_gstack_each_source_skill/')"
+eval "$(declare -f _gstack_register_each_source_skill |
+  sed '1s/_gstack_register_each_source_skill/_orig_gstack_register_each_source_skill/')"
 _gstack_source_scan_log=$(_tmpdir)/gstack-source-scans.log
 : >"$_gstack_source_scan_log"
 : >"$_gstack_full_register_log"
-_DOT_GSTACK_SOURCE_CACHE_DIR=''
-# shellcheck disable=SC2329  # dot_gstack_register_all invokes this by name.
-_dot_gstack_each_source_skill() {
+_GSTACK_REGISTER_SOURCE_CACHE_DIR=''
+# shellcheck disable=SC2329  # gstack_register_sync invokes this by name.
+_gstack_register_each_source_skill() {
   printf '.\n' >>"$_gstack_source_scan_log"
-  _orig_dot_gstack_each_source_skill "$@"
+  _orig_gstack_register_each_source_skill "$@"
 }
-if dot_gstack_register_all; then
+if gstack_register_sync; then
   _pass "gstack: registration succeeds with stale managed skills"
 else
   _fail "gstack: registration succeeds with stale managed skills"
@@ -477,7 +469,7 @@ else
 fi
 
 : >"$_gstack_log"
-if uninstall "garrytan/gstack"; then
+if gstack_register_uninstall; then
   _pass "gstack: uninstall removes lightweight registrations"
 else
   _fail "gstack: uninstall removes lightweight registrations"
@@ -490,55 +482,53 @@ _assert_file_missing "gstack: uninstall removes Codex source skill" \
 _assert_file_missing "gstack: uninstall removes Codex runtime root" \
   "$_gstack_home/.codex/skills/gstack"
 _assert_file_missing "gstack: uninstall removes shared generated skill" \
-  "$_gstack_home/.gstack/dotfiles-skills/gstack-qa/SKILL.md"
+  "$_gstack_home/.local/share/gstack-register/skills/gstack-qa/SKILL.md"
 _assert_file_missing "gstack: uninstall removes shared Gemini context" \
-  "$_gstack_home/.gstack/dotfiles-skills/GEMINI.md"
+  "$_gstack_home/.local/share/gstack-register/skills/GEMINI.md"
 
 HOME=$_saved_home
 PATH=$_saved_path
-unset GSTACK_HOOK_LOG DOT_GSTACK_REGISTER_LIB
-unset -f post uninstall dot_gstack_dir dot_gstack_migration_stamp \
-  dot_gstack_register_all dot_gstack_unregister_all _dot_gstack_warn \
-  _dot_gstack_log _dot_gstack_has_agent _dot_gstack_skill_name \
-  _dot_gstack_each_source_skill _dot_gstack_load_source_skills \
-  _dot_gstack_reset_source_cache \
-  _dot_gstack_codex_skill_name _dot_gstack_codex_skill_name_exists \
-  _dot_gstack_is_prefixed_skill_name _dot_gstack_each_prefixed_skill_target \
-  _dot_gstack_remove_link_if_managed \
-  _dot_gstack_points_to_gstack _dot_gstack_points_to_dotfiles_skills \
-  _dot_gstack_points_to_managed_gstack _dot_gstack_skill_dir_is_managed \
-  _dot_gstack_managed_marker _dot_gstack_mark_managed_dir \
-  _dot_gstack_state_dir _dot_gstack_generated_skills_dir \
-  _dot_gstack_state_entry_is_known \
-  _dot_gstack_migrate_state_dir \
-  _dot_gstack_codex_root_is_managed _dot_gstack_gemini_extension_is_managed \
-  _dot_gstack_legacy_codex_fixed_copy_is_gstack \
-  _dot_gstack_prune_stale_claude _dot_gstack_prune_stale_codex \
-  _dot_gstack_prune_stale_gemini _dot_gstack_prune_stale_generated_skills \
-  _dot_gstack_link_generated_skill _dot_gstack_register_claude \
-  _dot_gstack_generated_skill_current _dot_gstack_write_skill_md \
-  _dot_gstack_write_gemini_context _dot_gstack_write_generated_skills \
-  _dot_gstack_remove_skill_link \
-  _dot_gstack_register_codex _dot_gstack_register_gemini \
-  _dot_gstack_unregister_generated_skills _dot_gstack_unregister_codex \
-  _dot_gstack_unregister_gemini \
-  _orig_dot_gstack_each_source_skill _orig_dot_gstack_register_claude \
-  _orig_dot_gstack_register_codex _orig_dot_gstack_register_gemini \
-  _orig_dot_gstack_source_fingerprint _orig_dot_gstack_target_fingerprint \
-  _dot_gstack_agent_state _dot_gstack_registration_cache_file \
-  _dot_gstack_source_fingerprint _dot_gstack_emit_target_entry \
-  _dot_gstack_emit_unexpected_managed_targets _dot_gstack_target_fingerprint \
-  _dot_gstack_cache_watch_entry_current _dot_gstack_registration_watch_current \
-  _dot_gstack_emit_watch_entry _dot_gstack_emit_source_watch_entries \
-  _dot_gstack_emit_target_watch_entries \
-  _dot_gstack_emit_registration_watch_entries \
-  _dot_gstack_registration_cache_current _dot_gstack_write_registration_cache \
-  shdeps_warn
-unset _DOT_GSTACK_SOURCE_CACHE_DIR _DOT_GSTACK_SOURCE_SKILL_DIRS \
-  _DOT_GSTACK_SOURCE_SKILL_NAMES _DOT_GSTACK_SOURCE_NAME_EXISTS \
-  _DOT_GSTACK_SOURCE_CODEX_NAME_EXISTS
+unset GSTACK_HOOK_LOG
+unset -f gstack_register_source_dir gstack_register_migration_stamp \
+  gstack_register_sync gstack_register_uninstall _gstack_register_warn \
+  _gstack_register_log _gstack_register_has_agent _gstack_register_skill_name \
+  _gstack_register_each_source_skill _gstack_register_load_source_skills \
+  _gstack_register_reset_source_cache \
+  _gstack_register_codex_skill_name _gstack_register_codex_skill_name_exists \
+  _gstack_register_is_prefixed_skill_name _gstack_register_each_prefixed_skill_target \
+  _gstack_register_remove_link_if_managed \
+  _gstack_register_points_to_gstack _gstack_register_points_to_generated_skills \
+  _gstack_register_points_to_managed_gstack _gstack_register_skill_dir_is_managed \
+  _gstack_register_managed_marker _gstack_register_mark_managed_dir \
+  _gstack_register_upstream_state_dir _gstack_register_generated_skills_dir \
+  _gstack_register_state_entry_is_known \
+  _gstack_register_migrate_state_dir \
+  _gstack_register_codex_root_is_managed _gstack_register_gemini_extension_is_managed \
+  _gstack_register_legacy_codex_fixed_copy_is_gstack \
+  _gstack_register_prune_stale_claude _gstack_register_prune_stale_codex \
+  _gstack_register_prune_stale_gemini _gstack_register_prune_stale_generated_skills \
+  _gstack_register_link_generated_skill _gstack_register_claude \
+  _gstack_register_generated_skill_current _gstack_register_write_skill_md \
+  _gstack_register_write_gemini_context _gstack_register_write_generated_skills \
+  _gstack_register_remove_skill_link \
+  _gstack_register_codex _gstack_register_gemini \
+  _gstack_register_unregister_generated_skills _gstack_register_unregister_codex \
+  _gstack_register_unregister_gemini \
+  _orig_gstack_register_each_source_skill _orig_gstack_register_claude \
+  _orig_gstack_register_codex _orig_gstack_register_gemini \
+  _orig_gstack_register_source_fingerprint _orig_gstack_register_target_fingerprint \
+  _gstack_register_agent_state _gstack_register_registration_cache_file \
+  _gstack_register_source_fingerprint _gstack_register_emit_target_entry \
+  _gstack_register_emit_unexpected_managed_targets _gstack_register_target_fingerprint \
+  _gstack_register_cache_watch_entry_current _gstack_register_registration_watch_current \
+  _gstack_register_emit_watch_entry _gstack_register_emit_source_watch_entries \
+  _gstack_register_emit_target_watch_entries \
+  _gstack_register_emit_registration_watch_entries \
+  _gstack_register_registration_cache_current _gstack_register_write_registration_cache
+unset _GSTACK_REGISTER_SOURCE_CACHE_DIR _GSTACK_REGISTER_SOURCE_SKILL_DIRS \
+  _GSTACK_REGISTER_SOURCE_SKILL_NAMES _GSTACK_REGISTER_SOURCE_NAME_EXISTS \
+  _GSTACK_REGISTER_SOURCE_CODEX_NAME_EXISTS
 
-_gstack_merge_hook="$REAL_HOME/test/legacy/gstack-merge-hook.sh"
 _gstack_merge_home=$(_tmpdir)
 _gstack_merge_repo="$_gstack_merge_home/.local/share/garrytan/gstack"
 mkdir -p "$_gstack_merge_repo/qa" "$_gstack_merge_home/.codex" "$_gstack_merge_home/.gemini"
@@ -578,41 +568,36 @@ HOME=$_gstack_merge_home
 # Codex-only machine, so a real /usr/local/bin/gemini must not affect results.
 PATH="$_gstack_merge_agent_bin:/usr/bin:/bin"
 export GSTACK_MERGE_LOG=$_gstack_merge_log
-export DOT_GSTACK_REGISTER_LIB="$REAL_HOME/lib/gstack-register/api.sh"
-# shellcheck disable=SC2329  # sourced merge helper calls this by name.
-_warn() { printf '%s\n' "$*" >&2; }
-# shellcheck disable=SC2329  # sourced merge helper calls this by name.
-_log() { printf '%s\n' "$*" >/dev/null; }
 
-# shellcheck source=/dev/null
-. "$_gstack_merge_hook"
+# shellcheck source=../lib/gstack-register/api.sh
+. "$REAL_HOME/lib/gstack-register/api.sh"
 
-if merge; then
-  _pass "gstack: dot update migration hook succeeds"
+if gstack_register_sync; then
+  _pass "gstack: sync migration hook succeeds"
 else
-  _fail "gstack: dot update migration hook succeeds"
+  _fail "gstack: sync migration hook succeeds"
 fi
-_assert_eq "gstack: dot update migration does not run upstream setup" \
+_assert_eq "gstack: sync migration does not run upstream setup" \
   "" "$(cat "$_gstack_merge_log" 2>/dev/null)"
-_assert_file_exists "gstack: dot update migration links Codex skill" \
+_assert_file_exists "gstack: sync migration links Codex skill" \
   "$_gstack_merge_home/.codex/skills/gstack-qa/SKILL.md"
-_assert_file_exists "gstack: dot update migration records stamp" \
-  "$_gstack_merge_home/.gstack/.dot-agent-agnostic-install-v1"
+_assert_file_exists "gstack: sync migration records stamp" \
+  "$_gstack_merge_home/.local/state/gstack-register/legacy-dotfiles-v1"
 if [[ -d "$_gstack_merge_home/.gstack" && ! -L "$_gstack_merge_home/.gstack" ]]; then
-  _pass "gstack: dot update migration replaces legacy state symlink"
+  _pass "gstack: sync migration replaces legacy state symlink"
 else
-  _fail "gstack: dot update migration replaces legacy state symlink"
+  _fail "gstack: sync migration replaces legacy state symlink"
 fi
-_assert_file_exists "gstack: dot update migration preserves config state" \
+_assert_file_exists "gstack: sync migration preserves config state" \
   "$_gstack_merge_home/.gstack/config.yaml"
 if [[ -d "$_gstack_merge_home/.gstack/projects" ]]; then
-  _pass "gstack: dot update migration preserves project state"
+  _pass "gstack: sync migration preserves project state"
 else
-  _fail "gstack: dot update migration preserves project state"
+  _fail "gstack: sync migration preserves project state"
 fi
-_assert_file_exists "gstack: dot update migration preserves hidden state markers" \
+_assert_file_exists "gstack: sync migration preserves hidden state markers" \
   "$_gstack_merge_home/.gstack/.codex-desc-healed"
-_assert_file_missing "gstack: dot update migration removes state from checkout" \
+_assert_file_missing "gstack: sync migration removes state from checkout" \
   "$_gstack_merge_repo/config.yaml"
 # Blast-radius invariant: migration moves ONLY whitelisted runtime entries. The
 # upstream checkout holds source content (skills, a setup script) with no
@@ -628,7 +613,7 @@ _assert_file_missing "gstack: migration does not drain unknown skill into state"
   "$_gstack_merge_home/.gstack/qa/SKILL.md"
 _assert_file_missing "gstack: migration does not drain the setup script into state" \
   "$_gstack_merge_home/.gstack/setup"
-_assert_file_missing "gstack: dot update skips Gemini when Gemini CLI is missing" \
+_assert_file_missing "gstack: sync skips Gemini when Gemini CLI is missing" \
   "$_gstack_merge_home/.gemini/extensions/gstack/gemini-extension.json"
 
 : >"$_gstack_merge_log"
@@ -638,7 +623,7 @@ cat >"$_gstack_merge_home/.gemini/extensions/gstack/gemini-extension.json" <<'JS
 {"name":"stale"}
 JSON
 ln -sfn "$_gstack_merge_repo/SKILL.md" "$_gstack_merge_home/.gemini/extensions/gstack/GEMINI.md"
-if merge; then
+if gstack_register_sync; then
   _pass "gstack: stamped migration refreshes lightweight registrations"
 else
   _fail "gstack: stamped migration refreshes lightweight registrations"
@@ -651,49 +636,49 @@ _assert_file_missing "gstack: stamped migration removes stale Gemini extension w
 
 HOME=$_saved_home
 PATH=$_saved_path
-unset GSTACK_MERGE_LOG DOT_GSTACK_REGISTER_LIB
-unset -f merge dot_gstack_dir dot_gstack_migration_stamp \
-  dot_gstack_register_all dot_gstack_unregister_all _dot_gstack_warn \
-  _dot_gstack_log _dot_gstack_has_agent _dot_gstack_skill_name \
-  _dot_gstack_each_source_skill _dot_gstack_load_source_skills \
-  _dot_gstack_reset_source_cache \
-  _dot_gstack_codex_skill_name _dot_gstack_codex_skill_name_exists \
-  _dot_gstack_is_prefixed_skill_name _dot_gstack_each_prefixed_skill_target \
-  _dot_gstack_remove_link_if_managed \
-  _dot_gstack_points_to_gstack _dot_gstack_points_to_dotfiles_skills \
-  _dot_gstack_points_to_managed_gstack _dot_gstack_skill_dir_is_managed \
-  _dot_gstack_managed_marker _dot_gstack_mark_managed_dir \
-  _dot_gstack_state_dir _dot_gstack_generated_skills_dir \
-  _dot_gstack_state_entry_is_known \
-  _dot_gstack_migrate_state_dir \
-  _dot_gstack_codex_root_is_managed _dot_gstack_gemini_extension_is_managed \
-  _dot_gstack_legacy_codex_fixed_copy_is_gstack \
-  _dot_gstack_prune_stale_claude _dot_gstack_prune_stale_codex \
-  _dot_gstack_prune_stale_gemini _dot_gstack_prune_stale_generated_skills \
-  _dot_gstack_link_generated_skill _dot_gstack_register_claude \
-  _dot_gstack_generated_skill_current _dot_gstack_write_skill_md \
-  _dot_gstack_write_gemini_context _dot_gstack_write_generated_skills \
-  _dot_gstack_remove_skill_link \
-  _dot_gstack_register_codex _dot_gstack_register_gemini \
-  _dot_gstack_unregister_generated_skills _dot_gstack_unregister_codex \
-  _dot_gstack_unregister_gemini _warn _log
-unset -f _dot_gstack_agent_state _dot_gstack_registration_cache_file \
-  _dot_gstack_source_fingerprint _dot_gstack_emit_target_entry \
-  _dot_gstack_emit_unexpected_managed_targets _dot_gstack_target_fingerprint \
-  _dot_gstack_cache_watch_entry_current _dot_gstack_registration_watch_current \
-  _dot_gstack_emit_watch_entry _dot_gstack_emit_source_watch_entries \
-  _dot_gstack_emit_target_watch_entries \
-  _dot_gstack_emit_registration_watch_entries \
-  _dot_gstack_registration_cache_current _dot_gstack_write_registration_cache
-unset _DOT_GSTACK_SOURCE_CACHE_DIR _DOT_GSTACK_SOURCE_SKILL_DIRS \
-  _DOT_GSTACK_SOURCE_SKILL_NAMES _DOT_GSTACK_SOURCE_NAME_EXISTS \
-  _DOT_GSTACK_SOURCE_CODEX_NAME_EXISTS
+unset GSTACK_MERGE_LOG
+unset -f gstack_register_source_dir gstack_register_migration_stamp \
+  gstack_register_sync gstack_register_uninstall _gstack_register_warn \
+  _gstack_register_log _gstack_register_has_agent _gstack_register_skill_name \
+  _gstack_register_each_source_skill _gstack_register_load_source_skills \
+  _gstack_register_reset_source_cache \
+  _gstack_register_codex_skill_name _gstack_register_codex_skill_name_exists \
+  _gstack_register_is_prefixed_skill_name _gstack_register_each_prefixed_skill_target \
+  _gstack_register_remove_link_if_managed \
+  _gstack_register_points_to_gstack _gstack_register_points_to_generated_skills \
+  _gstack_register_points_to_managed_gstack _gstack_register_skill_dir_is_managed \
+  _gstack_register_managed_marker _gstack_register_mark_managed_dir \
+  _gstack_register_upstream_state_dir _gstack_register_generated_skills_dir \
+  _gstack_register_state_entry_is_known \
+  _gstack_register_migrate_state_dir \
+  _gstack_register_codex_root_is_managed _gstack_register_gemini_extension_is_managed \
+  _gstack_register_legacy_codex_fixed_copy_is_gstack \
+  _gstack_register_prune_stale_claude _gstack_register_prune_stale_codex \
+  _gstack_register_prune_stale_gemini _gstack_register_prune_stale_generated_skills \
+  _gstack_register_link_generated_skill _gstack_register_claude \
+  _gstack_register_generated_skill_current _gstack_register_write_skill_md \
+  _gstack_register_write_gemini_context _gstack_register_write_generated_skills \
+  _gstack_register_remove_skill_link \
+  _gstack_register_codex _gstack_register_gemini \
+  _gstack_register_unregister_generated_skills _gstack_register_unregister_codex \
+  _gstack_register_unregister_gemini
+unset -f _gstack_register_agent_state _gstack_register_registration_cache_file \
+  _gstack_register_source_fingerprint _gstack_register_emit_target_entry \
+  _gstack_register_emit_unexpected_managed_targets _gstack_register_target_fingerprint \
+  _gstack_register_cache_watch_entry_current _gstack_register_registration_watch_current \
+  _gstack_register_emit_watch_entry _gstack_register_emit_source_watch_entries \
+  _gstack_register_emit_target_watch_entries \
+  _gstack_register_emit_registration_watch_entries \
+  _gstack_register_registration_cache_current _gstack_register_write_registration_cache
+unset _GSTACK_REGISTER_SOURCE_CACHE_DIR _GSTACK_REGISTER_SOURCE_SKILL_DIRS \
+  _GSTACK_REGISTER_SOURCE_SKILL_NAMES _GSTACK_REGISTER_SOURCE_NAME_EXISTS \
+  _GSTACK_REGISTER_SOURCE_CODEX_NAME_EXISTS
 
 # ---------------------------------------------------------------------------
 # gstack migration: the two non-destructive branches. The happy-path drain (and
 # its whitelist invariant) is covered above; these guard the safety branches.
 # Run the function in a fresh shell that sources only the migration units, so
-# _dot_gstack_state_dir resolves from a controlled HOME.
+# _gstack_register_upstream_state_dir resolves from a controlled HOME.
 # ---------------------------------------------------------------------------
 echo "=== gstack migration: safety branches ==="
 _gstack_mig_lib="$REAL_HOME/lib/gstack-register"
@@ -701,7 +686,7 @@ _run_gstack_migrate() { # $1=HOME  $2=expected-checkout arg
   HOME="$1" bash -c '
     . "$1/paths.sh"
     . "$1/migration.sh"
-    _dot_gstack_migrate_state_dir "$2"
+    _gstack_register_migrate_state_dir "$2"
   ' _ "$_gstack_mig_lib" "$2" 2>&1
 }
 

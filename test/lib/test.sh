@@ -4,6 +4,10 @@
 PASS=0
 FAIL=0
 
+# Every suite installs its own fixture HOME. Ignore caller XDG roots unless a
+# test explicitly sets one, so no provider path can escape that fixture.
+unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME
+
 _pass() {
   PASS=$((PASS + 1))
   printf '  PASS: %s\n' "$1"
@@ -41,6 +45,15 @@ _assert_not_contains() {
   fi
 }
 
+_assert_exit() {
+  local desc="$1" expected="$2" actual="$3"
+  if [[ "$expected" -eq "$actual" ]]; then
+    _pass "$desc"
+  else
+    _fail "$desc (expected exit $expected, got $actual)"
+  fi
+}
+
 _assert_file_exists() {
   local desc="$1" path="$2"
   if [[ -f "$path" ]]; then
@@ -56,6 +69,15 @@ _assert_file_missing() {
     _pass "$desc"
   else
     _fail "$desc (file should not exist: $path)"
+  fi
+}
+
+_assert_path_missing() {
+  local desc="$1" path="$2"
+  if [[ ! -e "$path" && ! -L "$path" ]]; then
+    _pass "$desc"
+  else
+    _fail "$desc (path should not exist: $path)"
   fi
 }
 

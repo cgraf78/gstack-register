@@ -1,0 +1,3 @@
+# Replace these placeholders with upstream skill names to omit on this host.
+example-skill
+gstack-another-example  # the prefixed spelling is equivalent

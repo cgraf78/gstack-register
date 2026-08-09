@@ -1,127 +1,216 @@
 # shellcheck shell=bash
-# Lightweight gstack skill registration for dotfiles-managed installs.
-#
-# Upstream `gstack/setup` also builds browser binaries and installs Playwright
-# browsers. Dotfiles only need global skill registration during `dot update`, so
-# keep this path limited to links into the existing checkout.
+# Provider paths, environment overrides, and small shared primitives.
 
-dot_gstack_dir() {
-  printf '%s\n' "$HOME/.local/share/garrytan/gstack"
-}
-
-dot_gstack_migration_stamp() {
-  printf '%s\n' "$HOME/.gstack/.dot-agent-agnostic-install-v1"
-}
-
-_dot_gstack_state_dir() {
-  printf '%s\n' "$HOME/.gstack"
-}
-
-_dot_gstack_generated_skills_dir() {
-  printf '%s\n' "$(_dot_gstack_state_dir)/dotfiles-skills"
-}
-
-_dot_gstack_claude_skills_dir() {
-  printf '%s\n' "$HOME/.claude/skills"
-}
-
-# Optional user skip list for upstream gstack skills. Upstream ships every skill
-# it has, but agents pay for each registration in their skill-description
-# context budget, so a machine may legitimately want only a subset. The path is
-# overridable so tests can point at a fixture without writing to the real home.
-_dot_gstack_skill_exclude_file() {
-  printf '%s\n' "${DOT_GSTACK_SKILL_EXCLUDE_FILE:-$HOME/.config/dot/gstack-skills-exclude}"
-}
-
-_dot_gstack_codex_skills_dir() {
-  printf '%s\n' "$HOME/.codex/skills"
-}
-
-_dot_gstack_opencode_skills_dir() {
-  printf '%s\n' "$HOME/.config/opencode/skills"
-}
-
-_dot_gstack_opencode_generated_skills_dir() {
-  printf '%s\n' "$(_dot_gstack_state_dir)/dotfiles-opencode-skills"
-}
-
-_dot_gstack_gemini_extension_dir() {
-  printf '%s\n' "$HOME/.gemini/extensions/gstack"
-}
-
-_dot_gstack_gemini_skills_dir() {
-  printf '%s\n' "$(_dot_gstack_gemini_extension_dir)/skills"
-}
-
-_dot_gstack_warn() {
-  if declare -f shdeps_warn >/dev/null 2>&1; then
-    shdeps_warn "$@"
-  elif declare -f _warn >/dev/null 2>&1; then
-    _warn "$@"
-  else
-    printf '%s\n' "$*" >&2
+_gstack_register_home_path() {
+  local suffix="$1" home=${HOME:-}
+  if [[ -z "$home" || "$home" != /* ]]; then
+    printf 'gstack-register: HOME must be an absolute path\n' >&2
+    return 1
   fi
+  printf '%s/%s\n' "${home%/}" "$suffix"
 }
 
-_dot_gstack_log() {
-  if declare -f _log >/dev/null 2>&1; then
-    _log "$@"
-  elif declare -f shdeps_log >/dev/null 2>&1; then
-    shdeps_log "$@"
+_gstack_register_xdg_root() {
+  local configured="$1" fallback="$2"
+  case "$configured" in
+    /*) printf '%s\n' "${configured%/}" ;;
+    *) _gstack_register_home_path "$fallback" ;;
+  esac
+}
+
+_gstack_register_config_home() {
+  _gstack_register_xdg_root "${XDG_CONFIG_HOME:-}" .config
+}
+
+_gstack_register_data_home() {
+  _gstack_register_xdg_root "${XDG_DATA_HOME:-}" .local/share
+}
+
+_gstack_register_state_home() {
+  _gstack_register_xdg_root "${XDG_STATE_HOME:-}" .local/state
+}
+
+_gstack_register_cache_home() {
+  _gstack_register_xdg_root "${XDG_CACHE_HOME:-}" .cache
+}
+
+_gstack_register_override_path() {
+  local variable="$1" value="$2"
+  case "$value" in
+    /*) printf '%s\n' "$value" ;;
+    *)
+      printf 'gstack-register: %s must be an absolute path\n' "$variable" >&2
+      return 1
+      ;;
+  esac
+}
+
+gstack_register_source_dir() {
+  local data_home
+  if [[ -n "${GSTACK_REGISTER_SOURCE_DIR:-}" ]]; then
+    _gstack_register_override_path GSTACK_REGISTER_SOURCE_DIR \
+      "$GSTACK_REGISTER_SOURCE_DIR"
+    return
   fi
+  data_home=$(_gstack_register_data_home) || return 1
+  printf '%s/garrytan/gstack\n' "$data_home"
 }
 
-_DOT_GSTACK_SOURCE_CACHE_DIR=''
-_DOT_GSTACK_SOURCE_SKILL_DIRS=()
-_DOT_GSTACK_SOURCE_SKILL_NAMES=()
-declare -A _DOT_GSTACK_SOURCE_NAME_EXISTS=()
-declare -A _DOT_GSTACK_SOURCE_CODEX_NAME_EXISTS=()
-declare -A _DOT_GSTACK_SKILL_EXCLUDE=()
-_DOT_GSTACK_SKILL_EXCLUDE_LOADED=''
-_DOT_GSTACK_GENERATED_SKILL_VERSION='dotfiles-gstack-skill-v5'
-_DOT_GSTACK_OPENCODE_SKILL_VERSION='dotfiles-gstack-opencode-skill-v2'
-_DOT_GSTACK_GEMINI_CONTEXT_VERSION='dotfiles-gstack-gemini-context-v1'
-# v12 adds the skill exclude list to the source fingerprint and watch set;
-# caches written by v11 cannot prove an exclusion edit was applied.
-# v14 adds the transformed, dependency-free OpenCode skill tree.
-# v15 preserves project-relative paths in generated OpenCode skills.
-_DOT_GSTACK_REGISTRATION_CACHE_VERSION='dotfiles-gstack-registration-v15'
-_DOT_GSTACK_TARGET_FRESHNESS_CACHE_FILE=''
+gstack_register_migration_stamp() {
+  local state_home
+  state_home=$(_gstack_register_state_home) || return 1
+  printf '%s/gstack-register/legacy-dotfiles-v1\n' "$state_home"
+}
 
-_dot_gstack_cksum_file() {
+# ~/.gstack belongs to upstream gstack. This provider touches it only to repair
+# the historical install where dotfiles made it a checkout symlink.
+_gstack_register_upstream_state_dir() {
+  _gstack_register_home_path .gstack
+}
+
+_gstack_register_generated_skills_dir() {
+  local data_home
+  data_home=$(_gstack_register_data_home) || return 1
+  printf '%s/gstack-register/skills\n' "$data_home"
+}
+
+_gstack_register_opencode_generated_skills_dir() {
+  local data_home
+  data_home=$(_gstack_register_data_home) || return 1
+  printf '%s/gstack-register/opencode-skills\n' "$data_home"
+}
+
+_gstack_register_legacy_generated_skills_dir() {
+  local state_dir
+  state_dir=$(_gstack_register_upstream_state_dir) || return 1
+  printf '%s/dotfiles-skills\n' "$state_dir"
+}
+
+_gstack_register_legacy_opencode_generated_skills_dir() {
+  local state_dir
+  state_dir=$(_gstack_register_upstream_state_dir) || return 1
+  printf '%s/dotfiles-opencode-skills\n' "$state_dir"
+}
+
+_gstack_register_claude_skills_dir() {
+  _gstack_register_home_path .claude/skills
+}
+
+_gstack_register_skill_exclude_file() {
+  local config_home
+  if [[ -n "${GSTACK_REGISTER_SKILL_EXCLUDE_FILE:-}" ]]; then
+    _gstack_register_override_path GSTACK_REGISTER_SKILL_EXCLUDE_FILE \
+      "$GSTACK_REGISTER_SKILL_EXCLUDE_FILE"
+    return
+  fi
+  config_home=$(_gstack_register_config_home) || return 1
+  printf '%s/gstack-register/skills-exclude\n' "$config_home"
+}
+
+_gstack_register_codex_skills_dir() {
+  _gstack_register_home_path .codex/skills
+}
+
+_gstack_register_opencode_skills_dir() {
+  local config_home
+  config_home=$(_gstack_register_config_home) || return 1
+  printf '%s/opencode/skills\n' "$config_home"
+}
+
+_gstack_register_gemini_extension_dir() {
+  _gstack_register_home_path .gemini/extensions/gstack
+}
+
+_gstack_register_gemini_skills_dir() {
+  local extension_dir
+  extension_dir=$(_gstack_register_gemini_extension_dir) || return 1
+  printf '%s/skills\n' "$extension_dir"
+}
+
+_gstack_register_warn() {
+  printf '%s\n' "$*" >&2
+}
+
+_gstack_register_log() {
+  printf '%s\n' "$*"
+}
+
+_GSTACK_REGISTER_SOURCE_CACHE_DIR=''
+_GSTACK_REGISTER_SOURCE_SKILL_DIRS=()
+_GSTACK_REGISTER_SOURCE_SKILL_NAMES=()
+declare -A _GSTACK_REGISTER_SOURCE_NAME_EXISTS=()
+declare -A _GSTACK_REGISTER_SOURCE_CODEX_NAME_EXISTS=()
+declare -A _GSTACK_REGISTER_SKILL_EXCLUDE=()
+_GSTACK_REGISTER_SKILL_EXCLUDE_LOADED=''
+_GSTACK_REGISTER_GENERATED_SKILL_VERSION='gstack-register-skill-v1'
+_GSTACK_REGISTER_OPENCODE_SKILL_VERSION='gstack-register-opencode-skill-v1'
+_GSTACK_REGISTER_GEMINI_CONTEXT_VERSION='gstack-register-gemini-context-v1'
+_GSTACK_REGISTER_REGISTRATION_CACHE_VERSION='gstack-register-registration-v1'
+_GSTACK_REGISTER_TARGET_FRESHNESS_CACHE_FILE=''
+
+_gstack_register_cksum_file() {
   local file="$1"
-  if [ -f "$file" ]; then
+  if [[ -f "$file" ]]; then
     cksum <"$file" 2>/dev/null || printf 'unreadable 0\n'
   else
     printf 'missing 0\n'
   fi
 }
 
-_dot_gstack_hash_stream() {
+_gstack_register_hash_stream() {
   cksum | awk '{ print $1 ":" $2 }'
 }
 
-_dot_gstack_registration_cache_file() {
-  # Keep the cache in ~/.gstack rather than in any agent-specific skill tree:
-  # the decision covers all generated registrations, and ~/.gstack already
-  # owns dotfiles/gstack install-shape state across Claude, Codex, and Gemini.
-  printf '%s\n' "$(_dot_gstack_state_dir)/.dotfiles-registration-cache-v1"
+_gstack_register_registration_cache_file() {
+  local cache_home
+  cache_home=$(_gstack_register_cache_home) || return 1
+  printf '%s/gstack-register/registration-v1\n' "$cache_home"
 }
 
-_dot_gstack_has_agent() {
+_gstack_register_legacy_registration_cache_file() {
+  local state_dir
+  state_dir=$(_gstack_register_upstream_state_dir) || return 1
+  printf '%s/.dotfiles-registration-cache-v1\n' "$state_dir"
+}
+
+_gstack_register_legacy_migration_stamp() {
+  local state_dir
+  state_dir=$(_gstack_register_upstream_state_dir) || return 1
+  printf '%s/.dot-agent-agnostic-install-v1\n' "$state_dir"
+}
+
+_gstack_register_has_agent() {
   case "$1" in
     claude) command -v claude >/dev/null 2>&1 ;;
     codex) command -v codex >/dev/null 2>&1 ;;
     gemini) command -v gemini >/dev/null 2>&1 ;;
-    opencode) command -v "${DOT_OPENCODE_COMMAND:-opencode}" >/dev/null 2>&1 ;;
+    opencode)
+      command -v "${GSTACK_REGISTER_OPENCODE_COMMAND:-opencode}" >/dev/null 2>&1
+      ;;
     *) return 1 ;;
   esac
 }
 
-_dot_gstack_agent_state() {
-  if _dot_gstack_has_agent "$1"; then
+_gstack_register_agent_state() {
+  if _gstack_register_has_agent "$1"; then
     printf '0\n'
   else
     printf '1\n'
   fi
+}
+
+_gstack_register_validate_runtime_paths() {
+  # Resolve every mutable or watched root before the first filesystem change.
+  # Individual helpers also validate, but this prevents a late invalid HOME or
+  # override from leaving a partially generated tree behind.
+  gstack_register_migration_stamp >/dev/null || return 1
+  _gstack_register_upstream_state_dir >/dev/null || return 1
+  _gstack_register_generated_skills_dir >/dev/null || return 1
+  _gstack_register_opencode_generated_skills_dir >/dev/null || return 1
+  _gstack_register_claude_skills_dir >/dev/null || return 1
+  _gstack_register_skill_exclude_file >/dev/null || return 1
+  _gstack_register_codex_skills_dir >/dev/null || return 1
+  _gstack_register_opencode_skills_dir >/dev/null || return 1
+  _gstack_register_gemini_extension_dir >/dev/null || return 1
+  _gstack_register_registration_cache_file >/dev/null || return 1
 }

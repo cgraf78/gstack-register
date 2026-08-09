@@ -1,103 +1,98 @@
 # shellcheck shell=bash
-# Public API for dotfiles-managed gstack skill registration.
-#
-# This file is sourced by both the shdeps gstack hook and the dot merge hook.
-# Keep public entrypoints here and put implementation details in neighboring
-# modules so the registration flow remains readable.
+# Public operations for dependency-free gstack skill registration.
 
-_dot_gstack_register_module_dir() {
+_gstack_register_module_dir() {
   local src="${BASH_SOURCE[0]}"
   (cd "$(dirname "$src")" >/dev/null 2>&1 && pwd -P)
 }
 
-_DOT_GSTACK_REGISTER_DIR="${_DOT_GSTACK_REGISTER_DIR:-$(_dot_gstack_register_module_dir)}"
+_GSTACK_REGISTER_LIB_DIR="${_GSTACK_REGISTER_LIB_DIR:-$(_gstack_register_module_dir)}"
 
-# shellcheck source=../core/temp.sh
-. "$_DOT_GSTACK_REGISTER_DIR/../core/temp.sh"
+# shellcheck source=temp.sh
+. "$_GSTACK_REGISTER_LIB_DIR/temp.sh"
 # shellcheck source=paths.sh
-. "$_DOT_GSTACK_REGISTER_DIR/paths.sh"
+. "$_GSTACK_REGISTER_LIB_DIR/paths.sh"
 # shellcheck source=source.sh
-. "$_DOT_GSTACK_REGISTER_DIR/source.sh"
+. "$_GSTACK_REGISTER_LIB_DIR/source.sh"
 # shellcheck source=managed.sh
-. "$_DOT_GSTACK_REGISTER_DIR/managed.sh"
+. "$_GSTACK_REGISTER_LIB_DIR/managed.sh"
 # shellcheck source=migration.sh
-. "$_DOT_GSTACK_REGISTER_DIR/migration.sh"
+. "$_GSTACK_REGISTER_LIB_DIR/migration.sh"
 # shellcheck source=generated.sh
-. "$_DOT_GSTACK_REGISTER_DIR/generated.sh"
+. "$_GSTACK_REGISTER_LIB_DIR/generated.sh"
 # shellcheck source=opencode.sh
-. "$_DOT_GSTACK_REGISTER_DIR/opencode.sh"
+. "$_GSTACK_REGISTER_LIB_DIR/opencode.sh"
 # shellcheck source=targets.sh
-. "$_DOT_GSTACK_REGISTER_DIR/targets.sh"
+. "$_GSTACK_REGISTER_LIB_DIR/targets.sh"
 # shellcheck source=cache.sh
-. "$_DOT_GSTACK_REGISTER_DIR/cache.sh"
+. "$_GSTACK_REGISTER_LIB_DIR/cache.sh"
 
-dot_gstack_register_all() {
+gstack_register_sync() {
   local gstack_dir stamp
-  gstack_dir=$(dot_gstack_dir)
-  stamp=$(dot_gstack_migration_stamp)
+  gstack_dir=$(gstack_register_source_dir) || return 1
 
-  [ -d "$gstack_dir" ] || return 0
-  [ -f "$gstack_dir/SKILL.md" ] || {
-    _dot_gstack_warn "    warning: gstack checkout missing SKILL.md at $gstack_dir"
+  [[ -d "$gstack_dir" ]] || return 0
+  _gstack_register_validate_runtime_paths || return 1
+  stamp=$(gstack_register_migration_stamp) || return 1
+  [[ -f "$gstack_dir/SKILL.md" ]] || {
+    _gstack_register_warn \
+      "gstack-register: gstack checkout missing SKILL.md at $gstack_dir"
     return 1
   }
 
-  if _dot_gstack_registration_cache_current "$gstack_dir"; then
-    _dot_gstack_log "  gstack skill registration current"
-    touch "$stamp"
+  if _gstack_register_registration_cache_current "$gstack_dir"; then
+    _gstack_register_log 'gstack skill registration current'
     return 0
   fi
 
-  _dot_gstack_log "  gstack skill registration"
-  _dot_gstack_reset_source_cache
-  _dot_gstack_migrate_state_dir "$gstack_dir"
-  _dot_gstack_load_source_skills "$gstack_dir"
-  _dot_gstack_write_generated_skills "$gstack_dir"
+  _gstack_register_log 'gstack skill registration'
+  _gstack_register_reset_source_cache
+  _gstack_register_migrate_state_dir "$gstack_dir" || return 1
+  _gstack_register_load_source_skills "$gstack_dir" || return 1
+  _gstack_register_write_generated_skills "$gstack_dir" || return 1
 
   # Generated skills rewrite legacy Claude runtime paths to the checkout, so no
   # agent needs a global ~/.claude/skills/gstack compatibility root.
-  _dot_gstack_register_claude "$gstack_dir"
-  if _dot_gstack_has_agent codex; then
-    _dot_gstack_register_codex "$gstack_dir"
+  _gstack_register_claude "$gstack_dir" || return 1
+  if _gstack_register_has_agent codex; then
+    _gstack_register_codex "$gstack_dir" || return 1
   else
-    _dot_gstack_unregister_codex "$gstack_dir"
+    _gstack_register_unregister_codex "$gstack_dir" || return 1
   fi
-  if _dot_gstack_has_agent gemini; then
-    _dot_gstack_register_gemini "$gstack_dir"
+  if _gstack_register_has_agent gemini; then
+    _gstack_register_gemini "$gstack_dir" || return 1
   else
-    _dot_gstack_unregister_gemini
+    _gstack_register_unregister_gemini || return 1
   fi
-  if _dot_gstack_has_agent opencode; then
-    _dot_gstack_register_opencode "$gstack_dir" || return 1
+  if _gstack_register_has_agent opencode; then
+    _gstack_register_opencode "$gstack_dir" || return 1
   else
-    _dot_gstack_unregister_opencode || return 1
+    _gstack_register_unregister_opencode || return 1
   fi
 
-  _dot_gstack_write_registration_cache "$gstack_dir" || true
-  touch "$stamp"
+  # The cache is an optimization. A failed cache write must not turn a correct
+  # registration into a failed installation; the next sync simply recomputes.
+  _gstack_register_write_registration_cache "$gstack_dir" || true
+  _gstack_register_remove_legacy_artifacts || return 1
+  mkdir -p "$(dirname "$stamp")" || return 1
+  touch "$stamp" || return 1
 }
 
-dot_gstack_unregister_all() {
-  local gstack_dir claude_dir i name link_name
-  gstack_dir=$(dot_gstack_dir)
-  claude_dir="$(_dot_gstack_claude_skills_dir)"
+gstack_register_uninstall() {
+  local gstack_dir stamp cache_file rc=0
+  gstack_dir=$(gstack_register_source_dir) || return 1
+  _gstack_register_validate_runtime_paths || return 1
+  stamp=$(gstack_register_migration_stamp) || return 1
+  cache_file=$(_gstack_register_registration_cache_file) || return 1
 
-  _dot_gstack_reset_source_cache
-  if [ -d "$gstack_dir" ]; then
-    _dot_gstack_load_source_skills "$gstack_dir"
-    for i in "${!_DOT_GSTACK_SOURCE_SKILL_NAMES[@]}"; do
-      name="${_DOT_GSTACK_SOURCE_SKILL_NAMES[$i]}"
-      link_name=$(_dot_gstack_codex_skill_name "$name")
-      _dot_gstack_remove_skill_link "$claude_dir/$link_name"
-      _dot_gstack_remove_skill_link "$claude_dir/$name"
-    done
-  fi
-
-  _dot_gstack_remove_link_if_managed "$claude_dir/gstack"
-  _dot_gstack_remove_link_if_managed "$claude_dir/connect-chrome"
-  _dot_gstack_unregister_codex "$gstack_dir"
-  _dot_gstack_unregister_gemini
-  _dot_gstack_unregister_opencode
-  _dot_gstack_unregister_generated_skills
-  rm -f "$(dot_gstack_migration_stamp)"
+  _gstack_register_reset_source_cache
+  _gstack_register_unregister_claude "$gstack_dir" || rc=1
+  _gstack_register_unregister_codex "$gstack_dir" || rc=1
+  _gstack_register_unregister_gemini || rc=1
+  _gstack_register_unregister_opencode || rc=1
+  _gstack_register_unregister_generated_skills || rc=1
+  _gstack_register_remove_legacy_artifacts || rc=1
+  rm -f "$cache_file" "$stamp" || rc=1
+  rmdir "$(dirname "$cache_file")" "$(dirname "$stamp")" 2>/dev/null || true
+  return "$rc"
 }

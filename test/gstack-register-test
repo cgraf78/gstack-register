@@ -38,20 +38,20 @@ done
 mkdir -p "$gstack_dir/not-a-skill"
 
 _scan_names() {
-  _dot_gstack_reset_source_cache
-  _dot_gstack_each_source_skill "$gstack_dir" | while IFS= read -r dir; do
+  _gstack_register_reset_source_cache
+  _gstack_register_each_source_skill "$gstack_dir" | while IFS= read -r dir; do
     basename "$dir"
   done | LC_ALL=C sort | tr '\n' ' '
 }
 
 # --- baseline: no exclude file -------------------------------------------
-export DOT_GSTACK_SKILL_EXCLUDE_FILE="$work/absent-exclude-list"
+export GSTACK_REGISTER_SKILL_EXCLUDE_FILE="$work/absent-exclude-list"
 _assert_eq "source scan: skips non-skill dirs when no exclude file exists" \
   "browse diagram ios-fix ios-qa qa ship " "$(_scan_names)"
 
 # --- exclusions by bare and prefixed name --------------------------------
 exclude="$work/exclude"
-export DOT_GSTACK_SKILL_EXCLUDE_FILE="$exclude"
+export GSTACK_REGISTER_SKILL_EXCLUDE_FILE="$exclude"
 cat >"$exclude" <<'EOF'
 # Comment lines and blanks are ignored.
 browse
@@ -84,8 +84,8 @@ _assert_not_contains "source scan: dirs without SKILL.md are ignored" "not-a-ski
 
 # --- unmatched entries warn instead of failing open silently --------------
 printf 'gstack-typo-here\nbrowse\n' >"$exclude"
-_dot_gstack_reset_source_cache
-warn_output=$(_dot_gstack_load_source_skills "$gstack_dir" 2>&1 >/dev/null)
+_gstack_register_reset_source_cache
+warn_output=$(_gstack_register_load_source_skills "$gstack_dir" 2>&1 >/dev/null)
 _assert_contains "exclude list: warns about an entry matching no upstream skill" \
   "gstack-typo-here" "$warn_output"
 _assert_not_contains "exclude list: does not warn about an entry that matched" \
@@ -97,24 +97,24 @@ _assert_eq "exclude list: a typo leaves other skills registered" \
 
 # --- the loaded inventory reflects exclusions -----------------------------
 printf 'browse\nqa\n' >"$exclude"
-_dot_gstack_reset_source_cache
-_dot_gstack_load_source_skills "$gstack_dir" 2>/dev/null
+_gstack_register_reset_source_cache
+_gstack_register_load_source_skills "$gstack_dir" 2>/dev/null
 _assert_eq "source inventory: excluded skills are absent from the name index" \
-  "" "${_DOT_GSTACK_SOURCE_CODEX_NAME_EXISTS["gstack-browse"]+present}"
+  "" "${_GSTACK_REGISTER_SOURCE_CODEX_NAME_EXISTS["gstack-browse"]+present}"
 _assert_eq "source inventory: retained skills stay in the name index" \
-  "present" "${_DOT_GSTACK_SOURCE_CODEX_NAME_EXISTS["gstack-ship"]+present}"
+  "present" "${_GSTACK_REGISTER_SOURCE_CODEX_NAME_EXISTS["gstack-ship"]+present}"
 
-# The cache fingerprint must move when the list changes, or a warm dot update
+# The cache fingerprint must move when the list changes, or a warm sync
 # would keep serving the pre-edit registration set.
 # shellcheck source=../gstack-register/managed.sh
 . "$lib/managed.sh" 2>/dev/null || true
 # shellcheck source=../gstack-register/cache.sh
 . "$lib/cache.sh"
-_dot_gstack_reset_source_cache
-before=$(_dot_gstack_source_fingerprint "$gstack_dir")
+_gstack_register_reset_source_cache
+before=$(_gstack_register_source_fingerprint "$gstack_dir")
 printf 'browse\n' >"$exclude"
-_dot_gstack_reset_source_cache
-after=$(_dot_gstack_source_fingerprint "$gstack_dir")
+_gstack_register_reset_source_cache
+after=$(_gstack_register_source_fingerprint "$gstack_dir")
 if [ "$before" != "$after" ]; then
   _pass "cache: source fingerprint changes when the exclude list changes"
 else

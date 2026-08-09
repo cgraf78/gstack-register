@@ -5,14 +5,14 @@
 # module mirrors the stable host contract with Bash/Awk: allowlisted frontmatter,
 # OpenCode runtime paths, the root router, and the required runtime assets.
 
-_dot_gstack_opencode_name_is_codex() {
+_gstack_register_opencode_name_is_codex() {
   case "$1" in
     codex | gstack-codex) return 0 ;;
   esac
   return 1
 }
 
-_dot_gstack_opencode_routing_description() {
+_gstack_register_opencode_routing_description() {
   local skill_md="$1"
   awk '
     function append(current, value) {
@@ -79,28 +79,29 @@ _dot_gstack_opencode_routing_description() {
   ' "$skill_md"
 }
 
-_dot_gstack_write_opencode_skill_md() {
+_gstack_register_write_opencode_skill_md() {
   local src="$1" dst="$2" name="$3" runtime_root="$4"
   local skills_root full_description tmp
-  skills_root=$(_dot_gstack_opencode_skills_dir)
-  full_description=$(_dot_gstack_opencode_routing_description "$src/SKILL.md") || return 1
+  skills_root=$(_gstack_register_opencode_skills_dir) || return 1
+  full_description=$(_gstack_register_opencode_routing_description "$src/SKILL.md") || return 1
 
   if { [ -e "$dst" ] || [ -L "$dst" ]; } &&
-    ! _dot_gstack_skill_dir_is_managed "$dst"; then
-    _dot_gstack_warn "    warning: skipping unmanaged generated OpenCode skill at $dst"
+    ! _gstack_register_skill_dir_is_managed "$dst"; then
+    _gstack_register_warn \
+      "gstack-register: warning: skipping unmanaged generated OpenCode skill at $dst"
     return 1
   fi
   if [ -L "$dst" ]; then
     rm -f "$dst" || return 1
   fi
-  _dot_gstack_mark_managed_dir "$dst" || return 1
-  _dot_sibling_tmp_for "$dst/SKILL.md" || return 1
+  _gstack_register_mark_managed_dir "$dst" || return 1
+  _gstack_register_sibling_tmp_for "$dst/SKILL.md" || return 1
   tmp="$REPLY"
 
   awk -v new_name="$name" -v source="$src/SKILL.md" \
     -v runtime_root="$runtime_root" -v skills_root="$skills_root" \
     -v full_description="$full_description" \
-    -v generator="$_DOT_GSTACK_OPENCODE_SKILL_VERSION" '
+    -v generator="$_GSTACK_REGISTER_OPENCODE_SKILL_VERSION" '
     function rewrite_runtime_paths(line) {
       gsub(/~\/[.]claude\/skills\/gstack/, runtime_root, line)
       gsub(/[$]HOME\/[.]claude\/skills\/gstack/, runtime_root, line)
@@ -126,8 +127,8 @@ _dot_gstack_write_opencode_skill_md() {
       print "description: |"
       print "  " rewrite_runtime_paths(full_description)
       print
-      print "<!-- dotfiles-managed-source: " source " -->"
-      print "<!-- dotfiles-managed-generator: " generator " -->"
+      print "<!-- gstack-register-source: " source " -->"
+      print "<!-- gstack-register-generator: " generator " -->"
       in_frontmatter = 0
       next
     }
@@ -136,72 +137,73 @@ _dot_gstack_write_opencode_skill_md() {
     }
     { print rewrite_runtime_paths($0) }
   ' "$src/SKILL.md" >"$tmp" || {
-    rm -f "$tmp"
+    _gstack_register_remove_temp "$tmp" || true
     return 1
   }
 
   if [ -f "$dst/SKILL.md" ] && cmp -s "$tmp" "$dst/SKILL.md"; then
-    rm -f "$tmp"
+    _gstack_register_remove_temp "$tmp" || true
   else
     mv "$tmp" "$dst/SKILL.md" || {
-      rm -f "$tmp"
+      _gstack_register_remove_temp "$tmp" || true
       return 1
     }
+    _gstack_register_forget_temp "$tmp"
   fi
 }
 
-_dot_gstack_prune_stale_opencode_generated() {
+_gstack_register_prune_stale_opencode_generated() {
   local gstack_dir="$1" generated_dir="$2" dst base rc=0
   while IFS= read -r dst; do
     base=$(basename "$dst")
     [ "$base" = "gstack" ] && continue
     if [ "$base" != "gstack-codex" ] &&
-      _dot_gstack_codex_skill_name_exists "$gstack_dir" "$base"; then
+      _gstack_register_codex_skill_name_exists "$gstack_dir" "$base"; then
       continue
     fi
-    _dot_gstack_skill_dir_is_managed "$dst" || continue
-    _dot_gstack_remove_skill_link "$dst" || rc=1
-  done < <(_dot_gstack_each_prefixed_skill_target "$generated_dir")
+    _gstack_register_skill_dir_is_managed "$dst" || continue
+    _gstack_register_remove_skill_link "$dst" || rc=1
+  done < <(_gstack_register_each_prefixed_skill_target "$generated_dir")
   return "$rc"
 }
 
-_dot_gstack_write_opencode_skills() {
+_gstack_register_write_opencode_skills() {
   local gstack_dir="$1" generated_dir runtime_root i skill_dir source_base name
   local link_name skill_name rc=0
-  generated_dir=$(_dot_gstack_opencode_generated_skills_dir)
-  runtime_root="$(_dot_gstack_opencode_skills_dir)/gstack"
-  _dot_gstack_mark_managed_dir "$generated_dir" || return 1
+  generated_dir=$(_gstack_register_opencode_generated_skills_dir) || return 1
+  runtime_root="$(_gstack_register_opencode_skills_dir)/gstack" || return 1
+  _gstack_register_mark_managed_dir "$generated_dir" || return 1
 
-  _dot_gstack_write_opencode_skill_md "$gstack_dir" "$generated_dir/gstack" \
+  _gstack_register_write_opencode_skill_md "$gstack_dir" "$generated_dir/gstack" \
     "gstack" "$runtime_root" || rc=1
 
-  _dot_gstack_load_source_skills "$gstack_dir"
-  for i in "${!_DOT_GSTACK_SOURCE_SKILL_DIRS[@]}"; do
-    skill_dir="${_DOT_GSTACK_SOURCE_SKILL_DIRS[$i]}"
+  _gstack_register_load_source_skills "$gstack_dir" || return 1
+  for i in "${!_GSTACK_REGISTER_SOURCE_SKILL_DIRS[@]}"; do
+    skill_dir="${_GSTACK_REGISTER_SOURCE_SKILL_DIRS[$i]}"
     source_base=$(basename "$skill_dir")
-    name="${_DOT_GSTACK_SOURCE_SKILL_NAMES[$i]}"
+    name="${_GSTACK_REGISTER_SOURCE_SKILL_NAMES[$i]}"
     if [ "$source_base" = "codex" ] ||
-      _dot_gstack_opencode_name_is_codex "$name"; then
+      _gstack_register_opencode_name_is_codex "$name"; then
       continue
     fi
-    link_name=$(_dot_gstack_codex_skill_name "$name")
-    _dot_gstack_is_umbrella_link "$link_name" && continue
+    link_name=$(_gstack_register_codex_skill_name "$name")
+    _gstack_register_is_umbrella_link "$link_name" && continue
 
     skill_name="$name"
     if [ "$name" = "gstack-$source_base" ] && [ "$source_base" != "gstack" ]; then
       skill_name="$source_base"
     fi
-    _dot_gstack_write_opencode_skill_md "$skill_dir" "$generated_dir/$link_name" \
+    _gstack_register_write_opencode_skill_md "$skill_dir" "$generated_dir/$link_name" \
       "$skill_name" "$runtime_root" || rc=1
   done
 
-  _dot_gstack_prune_stale_opencode_generated "$gstack_dir" "$generated_dir" || rc=1
+  _gstack_register_prune_stale_opencode_generated "$gstack_dir" "$generated_dir" || rc=1
   return "$rc"
 }
 
-_dot_gstack_each_opencode_runtime_asset() {
+_gstack_register_each_opencode_runtime_asset() {
   local gstack_dir="$1" generated_dir source rel file
-  generated_dir=$(_dot_gstack_opencode_generated_skills_dir)
+  generated_dir=$(_gstack_register_opencode_generated_skills_dir) || return 1
 
   for rel in \
     bin \
@@ -232,7 +234,7 @@ _dot_gstack_each_opencode_runtime_asset() {
   done
 }
 
-_dot_gstack_link_opencode_runtime_asset() {
+_gstack_register_link_opencode_runtime_asset() {
   local root="$1" source="$2" rel="$3" dst
   dst="$root/$rel"
   mkdir -p "$(dirname "$dst")" || return 1
@@ -240,7 +242,7 @@ _dot_gstack_link_opencode_runtime_asset() {
   ln -s "$source" "$dst"
 }
 
-_dot_gstack_clear_opencode_runtime_assets() {
+_gstack_register_clear_opencode_runtime_assets() {
   local root="$1" rel rc=0
   [ -n "$root" ] || return 1
   for rel in SKILL.md bin browse design gstack-upgrade review qa plan-devex-review ETHOS.md; do
@@ -249,87 +251,97 @@ _dot_gstack_clear_opencode_runtime_assets() {
   return "$rc"
 }
 
-_dot_gstack_prune_stale_opencode() {
+_gstack_register_opencode_skill_is_managed() {
+  local dst="$1" link_dest
+  if [[ -L "$dst" ]]; then
+    link_dest=$(readlink "$dst" 2>/dev/null || true)
+    # OpenCode has only ever consumed generated provider trees. A user may
+    # deliberately link another gstack source skill here; that is not ours to
+    # prune merely because its target happens to be in the upstream checkout.
+    _gstack_register_points_to_generated_skills "$link_dest"
+    return
+  fi
+  _gstack_register_skill_dir_is_managed "$dst"
+}
+
+_gstack_register_prune_stale_opencode() {
   local skills_dir="$1" generated_dir dst base rc=0
-  generated_dir=$(_dot_gstack_opencode_generated_skills_dir)
+  generated_dir=$(_gstack_register_opencode_generated_skills_dir) || return 1
   while IFS= read -r dst; do
     base=$(basename "$dst")
     [ -f "$generated_dir/$base/SKILL.md" ] && continue
-    _dot_gstack_skill_dir_is_managed "$dst" || continue
-    _dot_gstack_remove_skill_link "$dst" || rc=1
-  done < <(_dot_gstack_each_prefixed_skill_target "$skills_dir")
+    _gstack_register_opencode_skill_is_managed "$dst" || continue
+    _gstack_register_remove_skill_link "$dst" || rc=1
+  done < <(_gstack_register_each_prefixed_skill_target "$skills_dir")
   return "$rc"
 }
 
-_dot_gstack_link_opencode_skills() {
+_gstack_register_link_opencode_skills() {
   local skills_dir="$1" generated_dir skill_dir link_name dst rc=0
-  generated_dir=$(_dot_gstack_opencode_generated_skills_dir)
+  generated_dir=$(_gstack_register_opencode_generated_skills_dir)
   for skill_dir in "$generated_dir"/gstack-*/; do
     [ -f "$skill_dir/SKILL.md" ] || continue
     link_name=$(basename "$skill_dir")
     dst="$skills_dir/$link_name"
     if { [ -e "$dst" ] || [ -L "$dst" ]; } &&
-      ! _dot_gstack_skill_dir_is_managed "$dst"; then
-      _dot_gstack_warn "    warning: skipping unmanaged OpenCode skill at $dst"
+      ! _gstack_register_opencode_skill_is_managed "$dst"; then
+      _gstack_register_warn \
+        "gstack-register: warning: skipping unmanaged OpenCode skill at $dst"
       continue
     fi
-    _dot_gstack_remove_skill_link "$dst" || rc=1
+    _gstack_register_remove_skill_link "$dst" || rc=1
     ln -s "${skill_dir%/}" "$dst" || rc=1
   done
   return "$rc"
 }
 
-_dot_gstack_register_opencode() {
-  local gstack_dir="$1" skills_dir root source rel rc=0
-  skills_dir=$(_dot_gstack_opencode_skills_dir)
+_gstack_register_opencode() {
+  local gstack_dir="$1" skills_dir root source rel rc=0 manage_root=1
+  skills_dir=$(_gstack_register_opencode_skills_dir) || return 1
   root="$skills_dir/gstack"
 
   if { [ -e "$root" ] || [ -L "$root" ]; } &&
-    ! _dot_gstack_opencode_root_is_managed "$root"; then
-    _dot_gstack_warn "    warning: skipping unmanaged OpenCode gstack root at $root"
-    return 0
+    ! _gstack_register_opencode_root_is_managed "$root"; then
+    _gstack_register_warn \
+      "gstack-register: warning: preserving unmanaged OpenCode root at $root"
+    manage_root=0
   fi
 
-  _dot_gstack_write_opencode_skills "$gstack_dir" || return 1
+  _gstack_register_write_opencode_skills "$gstack_dir" || return 1
   mkdir -p "$skills_dir" || return 1
-  _dot_gstack_mark_managed_dir "$root" || return 1
-  _dot_gstack_clear_opencode_runtime_assets "$root" || rc=1
-  while IFS=$'\t' read -r source rel; do
-    [ -n "$source" ] || continue
-    _dot_gstack_link_opencode_runtime_asset "$root" "$source" "$rel" || rc=1
-  done < <(_dot_gstack_each_opencode_runtime_asset "$gstack_dir")
+  if [[ "$manage_root" -eq 1 ]]; then
+    _gstack_register_mark_managed_dir "$root" || return 1
+    _gstack_register_clear_opencode_runtime_assets "$root" || rc=1
+    while IFS=$'\t' read -r source rel; do
+      [ -n "$source" ] || continue
+      _gstack_register_link_opencode_runtime_asset "$root" "$source" "$rel" || rc=1
+    done < <(_gstack_register_each_opencode_runtime_asset "$gstack_dir")
+  fi
 
-  _dot_gstack_prune_stale_opencode "$skills_dir" || rc=1
-  _dot_gstack_link_opencode_skills "$skills_dir" || rc=1
+  _gstack_register_prune_stale_opencode "$skills_dir" || rc=1
+  _gstack_register_link_opencode_skills "$skills_dir" || rc=1
   return "$rc"
 }
 
-_dot_gstack_unregister_opencode_generated() {
+_gstack_register_unregister_opencode_generated() {
   local generated_dir
-  generated_dir=$(_dot_gstack_opencode_generated_skills_dir)
-  if [ -d "$generated_dir" ] &&
-    [ -f "$(_dot_gstack_managed_marker "$generated_dir")" ]; then
-    rm -rf "$generated_dir"
-  fi
+  generated_dir=$(_gstack_register_opencode_generated_skills_dir) || return 1
+  _gstack_register_unregister_generated_tree "$generated_dir"
 }
 
-_dot_gstack_unregister_opencode() {
+_gstack_register_unregister_opencode() {
   local skills_dir root dst rc=0
-  skills_dir=$(_dot_gstack_opencode_skills_dir)
+  skills_dir=$(_gstack_register_opencode_skills_dir) || return 1
   root="$skills_dir/gstack"
 
-  if { [ -e "$root" ] || [ -L "$root" ]; } &&
-    ! _dot_gstack_opencode_root_is_managed "$root"; then
-    return 0
-  fi
-
   while IFS= read -r dst; do
-    _dot_gstack_remove_skill_link "$dst" || rc=1
-  done < <(_dot_gstack_each_prefixed_skill_target "$skills_dir")
+    _gstack_register_opencode_skill_is_managed "$dst" || continue
+    _gstack_register_remove_skill_link "$dst" || rc=1
+  done < <(_gstack_register_each_prefixed_skill_target "$skills_dir")
 
-  if _dot_gstack_opencode_root_is_managed "$root"; then
+  if _gstack_register_opencode_root_is_managed "$root"; then
     rm -rf "$root" || rc=1
   fi
-  _dot_gstack_unregister_opencode_generated || rc=1
+  _gstack_register_unregister_opencode_generated || rc=1
   return "$rc"
 }

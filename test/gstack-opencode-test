@@ -30,7 +30,7 @@ mkdir -p \
   "$gstack_dir/qa/templates" \
   "$gstack_dir/qa/references" \
   "$gstack_dir/plan-devex-review" \
-  "$fixture_home/.config/dot" \
+  "$fixture_home/.config/gstack-register" \
   "$mock_bin"
 
 : >"$bun_log"
@@ -83,7 +83,7 @@ printf 'template\n' >"$gstack_dir/qa/templates/default.md"
 printf 'reference\n' >"$gstack_dir/qa/references/default.md"
 printf 'hall of fame\n' >"$gstack_dir/plan-devex-review/dx-hall-of-fame.md"
 printf 'ethos\n' >"$gstack_dir/ETHOS.md"
-printf 'browse\n' >"$fixture_home/.config/dot/gstack-skills-exclude"
+printf 'browse\n' >"$fixture_home/.config/gstack-register/skills-exclude"
 
 cat >"$gstack_dir/setup" <<'SH'
 #!/usr/bin/env bash
@@ -121,52 +121,51 @@ export GSTACK_OPENCODE_BUN_LOG=$bun_log
 export GSTACK_OPENCODE_SETUP_LOG=$setup_log
 export GSTACK_OPENCODE_REAL_LN=$real_ln
 export GSTACK_OPENCODE_REAL_RM=$real_rm
-export DOT_GSTACK_REGISTER_LIB="$source_home/lib/gstack-register/api.sh"
-
 # shellcheck source=../gstack-register/api.sh
-. "$DOT_GSTACK_REGISTER_LIB"
+. "$source_home/lib/gstack-register/api.sh"
 
-eval "$(declare -f _dot_gstack_has_agent | sed \
-  '1s/_dot_gstack_has_agent/_original_dot_gstack_has_agent/')"
+eval "$(declare -f _gstack_register_has_agent | sed \
+  '1s/_gstack_register_has_agent/_original_gstack_register_has_agent/')"
 
 cat >"$mock_bin/compatible-opencode" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
 chmod +x "$mock_bin/compatible-opencode"
-DOT_OPENCODE_COMMAND=compatible-opencode
-export DOT_OPENCODE_COMMAND
-if _original_dot_gstack_has_agent opencode; then
+GSTACK_REGISTER_OPENCODE_COMMAND=compatible-opencode
+export GSTACK_REGISTER_OPENCODE_COMMAND
+if _original_gstack_register_has_agent opencode; then
   _pass "OpenCode: compatible command override enables registration"
 else
   _fail "OpenCode: compatible command override enables registration"
 fi
 rm -f "$mock_bin/compatible-opencode"
 hash -r
-if _original_dot_gstack_has_agent opencode; then
+if _original_gstack_register_has_agent opencode; then
   _fail "OpenCode: command override does not fall back to a different executable"
 else
   _pass "OpenCode: command override does not fall back to a different executable"
 fi
-unset DOT_OPENCODE_COMMAND
+unset GSTACK_REGISTER_OPENCODE_COMMAND
 
-_dot_gstack_has_agent() {
+_gstack_register_has_agent() {
   if [ "$1" = "opencode" ]; then
     [ -x "$mock_bin/opencode" ]
     return
   fi
-  _original_dot_gstack_has_agent "$@"
+  _original_gstack_register_has_agent "$@"
 }
 
-eval "$(declare -f _dot_gstack_register_opencode | sed \
-  '1s/_dot_gstack_register_opencode/_original_dot_gstack_register_opencode/')"
+eval "$(declare -f _gstack_register_opencode | sed \
+  '1s/_gstack_register_opencode/_original_gstack_register_opencode/')"
 opencode_register_count=0
-_dot_gstack_register_opencode() {
+# shellcheck disable=SC2329  # gstack_register_sync calls this test replacement by name.
+_gstack_register_opencode() {
   opencode_register_count=$((opencode_register_count + 1))
-  _original_dot_gstack_register_opencode "$@"
+  _original_gstack_register_opencode "$@"
 }
 
-if dot_gstack_register_all; then
+if gstack_register_sync; then
   _pass "OpenCode: registration succeeds without Bun"
 else
   _fail "OpenCode: registration succeeds without Bun"
@@ -228,18 +227,18 @@ _assert_file_exists "OpenCode: links the DX reference" \
   "$opencode_root/plan-devex-review/dx-hall-of-fame.md"
 
 touch "$work/cache-probe"
-dot_gstack_register_all
+gstack_register_sync
 _assert_eq "OpenCode cache: skips the registration pass when inputs are unchanged" \
   "1" "$opencode_register_count"
 
 mkdir -p "$gstack_dir/design/dist"
 printf 'design\n' >"$gstack_dir/design/dist/design"
-dot_gstack_register_all
+gstack_register_sync
 _assert_file_exists "OpenCode cache: links a design runtime created after warmup" \
   "$opencode_root/design/dist/design"
 
 rm -r "$gstack_dir/design/dist"
-dot_gstack_register_all
+gstack_register_sync
 if [ ! -e "$opencode_root/design" ] && [ ! -L "$opencode_root/design" ]; then
   _pass "OpenCode cache: removes a design runtime removed after warmup"
 else
@@ -253,7 +252,7 @@ name: qa
 description: refreshed OpenCode fixture
 ---
 MD
-dot_gstack_register_all
+gstack_register_sync
 _assert_contains "OpenCode cache: a source skill update refreshes OpenCode" \
   "refreshed OpenCode fixture" \
   "$(cat "$fixture_home/.config/opencode/skills/gstack-qa/SKILL.md" 2>/dev/null)"
@@ -261,7 +260,7 @@ _assert_eq "OpenCode cache: source refresh still does not invoke Bun" \
   "" "$(cat "$bun_log" 2>/dev/null)"
 
 rm -f "$gstack_dir/review/greptile-triage.md"
-dot_gstack_register_all
+gstack_register_sync
 if [ ! -e "$opencode_root/review/greptile-triage.md" ] &&
   [ ! -L "$opencode_root/review/greptile-triage.md" ]; then
   _pass "OpenCode: removes runtime assets dropped by upstream"
@@ -269,7 +268,7 @@ else
   _fail "OpenCode: removes runtime assets dropped by upstream"
 fi
 
-cache_file="$fixture_home/.gstack/.dotfiles-registration-cache-v1"
+cache_file="$fixture_home/.cache/gstack-register/registration-v1"
 cache_before=$(cksum <"$cache_file")
 cat >"$mock_bin/ln" <<'SH'
 #!/usr/bin/env bash
@@ -284,7 +283,7 @@ chmod +x "$mock_bin/ln"
 hash -r
 sleep 1
 printf '\nforced refresh\n' >>"$gstack_dir/qa/SKILL.md"
-if dot_gstack_register_all; then
+if gstack_register_sync; then
   _fail "OpenCode: a partial skill-link failure fails registration"
 else
   _pass "OpenCode: a partial skill-link failure fails registration"
@@ -293,7 +292,7 @@ _assert_eq "OpenCode: a partial install does not replace the current cache" \
   "$cache_before" "$(cksum <"$cache_file")"
 rm -f "$mock_bin/ln"
 hash -r
-dot_gstack_register_all
+gstack_register_sync
 _assert_file_exists "OpenCode: a later pass repairs a partial link failure" \
   "$fixture_home/.config/opencode/skills/gstack-qa/SKILL.md"
 
@@ -310,12 +309,12 @@ SH
 chmod +x "$mock_bin/rm"
 "$GSTACK_OPENCODE_REAL_RM" -f "$mock_bin/opencode"
 hash -r
-if _dot_gstack_has_agent opencode; then
+if _gstack_register_has_agent opencode; then
   _fail "OpenCode: fixture models agent removal independently of the host"
 else
   _pass "OpenCode: fixture models agent removal independently of the host"
 fi
-if dot_gstack_register_all; then
+if gstack_register_sync; then
   _fail "OpenCode: an agent-removal failure fails registration"
 else
   _pass "OpenCode: an agent-removal failure fails registration"
@@ -324,7 +323,7 @@ _assert_eq "OpenCode: failed agent removal does not replace the current cache" \
   "$agent_removal_cache_before" "$(cksum <"$cache_file")"
 "$GSTACK_OPENCODE_REAL_RM" -f "$mock_bin/rm"
 hash -r
-dot_gstack_register_all
+gstack_register_sync
 _assert_file_missing "OpenCode: removes the managed root when the agent disappears" \
   "$opencode_root/SKILL.md"
 _assert_file_missing "OpenCode: removes managed skills when the agent disappears" \
@@ -341,7 +340,7 @@ exit 0
 SH
 chmod +x "$mock_bin/opencode"
 hash -r
-dot_gstack_register_all
+gstack_register_sync
 _assert_file_content "OpenCode: preserves an unmanaged runtime root" \
   "private root" "$opencode_root/SKILL.md"
 _assert_file_exists "OpenCode: an unmanaged root keeps upstream-owned sibling skills" \
@@ -351,7 +350,7 @@ HOME=$saved_home
 PATH=$saved_path
 export HOME PATH
 unset GSTACK_OPENCODE_BUN_LOG GSTACK_OPENCODE_SETUP_LOG
-unset GSTACK_OPENCODE_REAL_LN GSTACK_OPENCODE_REAL_RM DOT_GSTACK_REGISTER_LIB
-unset DOT_OPENCODE_COMMAND
+unset GSTACK_OPENCODE_REAL_LN GSTACK_OPENCODE_REAL_RM
+unset GSTACK_REGISTER_OPENCODE_COMMAND
 
 _test_summary
