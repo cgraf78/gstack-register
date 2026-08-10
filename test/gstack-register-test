@@ -121,4 +121,23 @@ else
   _fail "cache: source fingerprint changes when the exclude list changes"
 fi
 
+# Keep the copyable policy file on the same parser path as real configuration.
+# Synthetic names make this safe for a public repository while still proving
+# comments and the accepted prefixed spelling remain valid.
+example_gstack_dir="$work/example-gstack"
+for name in example-skill another-example retained-example; do
+  mkdir -p "$example_gstack_dir/$name"
+  printf -- '---\nname: %s\ndescription: example fixture\n---\n' "$name" \
+    >"$example_gstack_dir/$name/SKILL.md"
+done
+export GSTACK_REGISTER_SKILL_EXCLUDE_FILE="$repo_root/examples/skills-exclude"
+_gstack_register_reset_source_cache
+example_names=$(
+  _gstack_register_each_source_skill "$example_gstack_dir" |
+    while IFS= read -r dir; do basename "$dir"; done |
+    LC_ALL=C sort | tr '\n' ' '
+)
+_assert_eq "examples: checked-in exclusion policy is accepted by the real parser" \
+  "retained-example " "$example_names"
+
 _test_summary
