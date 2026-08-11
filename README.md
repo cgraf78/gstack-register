@@ -17,18 +17,32 @@ gstack-register uninstall
 
 ## Installation
 
-Clone the repository and install a PATH-visible symlink:
+Install with a checkout-backed curl bootstrap:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cgraf78/gstack-register/main/install.sh | bash
+```
+
+This keeps a durable managed checkout under `$XDG_DATA_HOME` when that path is
+absolute, or under `$HOME/.local/share` otherwise, and publishes a link to its
+command. It does not use a release asset or copy a second runtime tree. Git and
+Bash 4.0 or newer are required.
+
+To choose and manage the checkout yourself instead:
 
 ```bash
 git clone https://github.com/cgraf78/gstack-register.git
 cd gstack-register
-./install.sh
+bash install.sh
 ```
 
 `PREFIX` defaults to `$HOME/.local`; `BIN_DIR` can override its `bin` child.
 The symlink resolves back to the matching checkout, keeping the launcher and
-private shell library version-coupled. Dependency managers can expose
-`bin/gstack-register` directly; for example, a shdeps entry is:
+private shell library version-coupled. Rerunning the curl command safely
+fast-forwards its clean managed checkout before republishing the same link. The
+installer retargets an existing symlink but refuses to replace a real file or
+directory. Dependency managers can expose `bin/gstack-register` directly; for
+example, a shdeps entry is:
 
 ```text
 cgraf78/gstack-register  github
