@@ -11,6 +11,8 @@ program	lib/gstack-register/paths.sh
 program	lib/gstack-register/source.sh
 program	lib/gstack-register/targets.sh
 program	lib/gstack-register/temp.sh
+program	scripts/checkout-installer.conf
+program	support/install-checkout.sh
 program	test/cli-test
 program	test/gstack-agents-test
 program	test/gstack-opencode-test
