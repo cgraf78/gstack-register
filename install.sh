@@ -9,7 +9,13 @@ PREFIX="${PREFIX:-$HOME/.local}"
 BIN_DIR="${BIN_DIR:-$PREFIX/bin}"
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
+source="$ROOT/bin/gstack-register"
 target="$BIN_DIR/gstack-register"
+if [[ ! -f "$source" || ! -x "$source" ]]; then
+  printf 'gstack-register: command source is not executable: %s\n' \
+    "$source" >&2
+  exit 1
+fi
 if [[ (-e "$target" || -L "$target") && ! -L "$target" ]]; then
   printf 'gstack-register: refusing to replace non-symlink path: %s\n' \
     "$target" >&2
@@ -17,6 +23,6 @@ if [[ (-e "$target" || -L "$target") && ! -L "$target" ]]; then
 fi
 
 mkdir -p "$BIN_DIR"
-ln -sfn "$ROOT/bin/gstack-register" "$target"
+ln -sfn "$source" "$target"
 
 printf 'installed gstack-register to %s\n' "$target"

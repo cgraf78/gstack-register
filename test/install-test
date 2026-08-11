@@ -45,4 +45,23 @@ _assert_file_content "installer: preserves a non-symlink target" \
 _assert_contains "installer: refusal is actionable" \
   "refusing to replace non-symlink" "$(cat "$work/blocked.err")"
 
+missing_root="$work/missing-source"
+missing_prefix="$work/missing-prefix"
+mkdir -p "$missing_root"
+cp "$repo_root/install.sh" "$missing_root/install.sh"
+set +e
+PREFIX="$missing_prefix" "$missing_root/install.sh" \
+  >"$work/missing.out" 2>"$work/missing.err"
+status=$?
+set -e
+_assert_exit "installer: rejects a missing command source" 1 "$status"
+if [[ ! -e "$missing_prefix/bin/gstack-register" &&
+  ! -L "$missing_prefix/bin/gstack-register" ]]; then
+  _pass "installer: missing source publishes no command"
+else
+  _fail "installer: missing source publishes no command"
+fi
+_assert_contains "installer: missing source is actionable" \
+  "command source is not executable" "$(cat "$work/missing.err")"
+
 _test_summary
