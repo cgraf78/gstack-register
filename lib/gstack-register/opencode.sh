@@ -12,6 +12,11 @@ _gstack_register_opencode_name_is_codex() {
   return 1
 }
 
+# OpenCode discovers skills from the description but does not consume the
+# upstream trigger metadata. Fold the human-readable routing section into that
+# description so generation preserves trigger-rich discovery without copying
+# host-specific frontmatter. Keep an upstream `(gstack)` marker at the very end
+# instead of stranding the provider tag between the summary and routing text.
 _gstack_register_opencode_routing_description() {
   local skill_md="$1"
   awk '
