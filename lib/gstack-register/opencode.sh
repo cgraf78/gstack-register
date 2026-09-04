@@ -146,7 +146,7 @@ _gstack_register_write_opencode_skill_md() {
     return 1
   }
 
-  if [ -f "$dst/SKILL.md" ] && cmp -s "$tmp" "$dst/SKILL.md"; then
+  if [ -f "$dst/SKILL.md" ] && _gstack_register_files_equal "$tmp" "$dst/SKILL.md"; then
     _gstack_register_remove_temp "$tmp" || true
   else
     mv "$tmp" "$dst/SKILL.md" || {

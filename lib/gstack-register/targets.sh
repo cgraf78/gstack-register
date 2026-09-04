@@ -121,7 +121,7 @@ _gstack_register_muse_installed_skills() {
 _gstack_register_muse_skill_current() {
   local generated_dir="$1" muse_dir="$2" link_name="$3" installed="$4"
   grep -qxF -- "$link_name" <<<"$installed" || return 1
-  cmp -s "$generated_dir/$link_name/SKILL.md" \
+  _gstack_register_files_equal "$generated_dir/$link_name/SKILL.md" \
     "$muse_dir/$link_name/SKILL.md"
 }
 

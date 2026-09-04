@@ -19,6 +19,8 @@ lib="$repo_root/lib/gstack-register"
 . "$lib/paths.sh"
 # shellcheck source=../gstack-register/source.sh
 . "$lib/source.sh"
+# shellcheck source=../gstack-register/managed.sh
+. "$lib/managed.sh"
 
 gstack_dir="$work/gstack"
 mkdir -p "$gstack_dir"
@@ -139,5 +141,28 @@ example_names=$(
 )
 _assert_eq "examples: checked-in exclusion policy is accepted by the real parser" \
   "retained-example " "$example_names"
+
+# Portable byte-equality: identical files compare equal, differing or missing
+# files do not. The no-cmp fallback path (cksum) is covered by CI on minimal
+# images (Arch/Fedora/RHEL families ship no diffutils); here we pin the
+# contract on the cmp path.
+printf 'same-bytes' >"$work/eq-a"
+printf 'same-bytes' >"$work/eq-b"
+printf 'other-bytes' >"$work/diff-b"
+if _gstack_register_files_equal "$work/eq-a" "$work/eq-b"; then
+  _pass "files_equal: identical files compare equal"
+else
+  _fail "files_equal: identical files compare equal"
+fi
+if _gstack_register_files_equal "$work/eq-a" "$work/diff-b"; then
+  _fail "files_equal: differing files compare unequal"
+else
+  _pass "files_equal: differing files compare unequal"
+fi
+if _gstack_register_files_equal "$work/eq-a" "$work/absent"; then
+  _fail "files_equal: missing file never compares equal"
+else
+  _pass "files_equal: missing file never compares equal"
+fi
 
 _test_summary
