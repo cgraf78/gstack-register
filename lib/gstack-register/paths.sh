@@ -117,6 +117,12 @@ _gstack_register_opencode_skills_dir() {
   printf '%s/opencode/skills\n' "$config_home"
 }
 
+_gstack_register_muse_skills_dir() {
+  local config_home
+  config_home=$(_gstack_register_config_home) || return 1
+  printf '%s/muse/skills\n' "$config_home"
+}
+
 _gstack_register_gemini_extension_dir() {
   _gstack_register_home_path .gemini/extensions/gstack
 }
@@ -183,6 +189,7 @@ _gstack_register_has_agent() {
   case "$1" in
     claude) command -v claude >/dev/null 2>&1 ;;
     codex) command -v codex >/dev/null 2>&1 ;;
+    muse) command -v muse >/dev/null 2>&1 ;;
     gemini) command -v gemini >/dev/null 2>&1 ;;
     opencode)
       command -v "${GSTACK_REGISTER_OPENCODE_COMMAND:-opencode}" >/dev/null 2>&1
@@ -210,6 +217,7 @@ _gstack_register_validate_runtime_paths() {
   _gstack_register_claude_skills_dir >/dev/null || return 1
   _gstack_register_skill_exclude_file >/dev/null || return 1
   _gstack_register_codex_skills_dir >/dev/null || return 1
+  _gstack_register_muse_skills_dir >/dev/null || return 1
   _gstack_register_opencode_skills_dir >/dev/null || return 1
   _gstack_register_gemini_extension_dir >/dev/null || return 1
   _gstack_register_registration_cache_file >/dev/null || return 1

@@ -59,6 +59,11 @@ gstack_register_sync() {
   else
     _gstack_register_unregister_codex "$gstack_dir" || return 1
   fi
+  if _gstack_register_has_agent muse; then
+    _gstack_register_muse "$gstack_dir" || return 1
+  else
+    _gstack_register_unregister_muse "$gstack_dir" || return 1
+  fi
   if _gstack_register_has_agent gemini; then
     _gstack_register_gemini "$gstack_dir" || return 1
   else
@@ -88,6 +93,7 @@ gstack_register_uninstall() {
   _gstack_register_reset_source_cache
   _gstack_register_unregister_claude "$gstack_dir" || rc=1
   _gstack_register_unregister_codex "$gstack_dir" || rc=1
+  _gstack_register_unregister_muse "$gstack_dir" || rc=1
   _gstack_register_unregister_gemini || rc=1
   _gstack_register_unregister_opencode || rc=1
   _gstack_register_unregister_generated_skills || rc=1

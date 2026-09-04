@@ -12,8 +12,8 @@ _gstack_register_source_fingerprint() {
   {
     # The source fingerprint captures every input that can change what the
     # registration step should produce. Agent availability is included because
-    # losing Codex/Gemini/OpenCode should remove registrations for that agent,
-    # while gaining one should create them on the next sync.
+    # losing Codex/Gemini/Muse/OpenCode should remove registrations for that
+    # agent, while gaining one should create them on the next sync.
     printf 'version\t%s\n' "$_GSTACK_REGISTER_REGISTRATION_CACHE_VERSION"
     # The exclude list is a registration input even though it lives outside the
     # checkout; hash it so a content edit invalidates the cache even when the
@@ -40,6 +40,10 @@ _gstack_register_source_fingerprint() {
     )"
     printf 'agent\tcodex\t%s\n' "$(
       _gstack_register_has_agent codex
+      printf '%s' "$?"
+    )"
+    printf 'agent\tmuse\t%s\n' "$(
+      _gstack_register_has_agent muse
       printf '%s' "$?"
     )"
     printf 'agent\tgemini\t%s\n' "$(
@@ -89,7 +93,7 @@ _gstack_register_emit_target_entry() {
 
 _gstack_register_emit_unexpected_managed_targets() {
   local gstack_dir="$1" generated_dir="$2" claude_dir="$3" codex_dir="$4" gemini_skill_dir="$5"
-  local opencode_dir="$6"
+  local opencode_dir="$6" muse_dir="$7"
   local opencode_generated_dir dst base
   opencode_generated_dir=$(_gstack_register_opencode_generated_skills_dir)
 
@@ -126,6 +130,13 @@ _gstack_register_emit_unexpected_managed_targets() {
     base=$(basename "$dst")
     [ -n "${_GSTACK_REGISTER_SOURCE_CODEX_NAME_EXISTS[$base]+x}" ] && continue
     _gstack_register_skill_dir_is_managed "$dst" || continue
+    printf 'unexpected-target\tmuse/%s\t%s\n' "$base" "$dst"
+  done < <(_gstack_register_each_prefixed_skill_target "$muse_dir")
+
+  while IFS= read -r dst; do
+    base=$(basename "$dst")
+    [ -n "${_GSTACK_REGISTER_SOURCE_CODEX_NAME_EXISTS[$base]+x}" ] && continue
+    _gstack_register_skill_dir_is_managed "$dst" || continue
     printf 'unexpected-target\tgemini/%s\t%s\n' "$base" "$dst"
   done < <(_gstack_register_each_prefixed_skill_target "$gemini_skill_dir")
 
@@ -139,12 +150,13 @@ _gstack_register_emit_unexpected_managed_targets() {
 
 _gstack_register_target_fingerprint() {
   local gstack_dir="$1"
-  local claude_dir codex_dir gemini_ext gemini_skill_dir opencode_dir opencode_root
+  local claude_dir codex_dir muse_dir gemini_ext gemini_skill_dir opencode_dir opencode_root
   local opencode_generated_dir
   local generated_dir
   local i name link_name asset rel skill_dir
   claude_dir="$(_gstack_register_claude_skills_dir)"
   codex_dir="$(_gstack_register_codex_skills_dir)"
+  muse_dir="$(_gstack_register_muse_skills_dir)"
   gemini_ext="$(_gstack_register_gemini_extension_dir)"
   gemini_skill_dir="$(_gstack_register_gemini_skills_dir)"
   opencode_dir="$(_gstack_register_opencode_skills_dir)"
@@ -202,6 +214,20 @@ _gstack_register_target_fingerprint() {
       _gstack_register_emit_target_entry "$codex_dir/gstack" "codex/gstack"
     fi
 
+    if _gstack_register_has_agent muse; then
+      for i in "${!_GSTACK_REGISTER_SOURCE_SKILL_NAMES[@]}"; do
+        name="${_GSTACK_REGISTER_SOURCE_SKILL_NAMES[$i]}"
+        link_name=$(_gstack_register_codex_skill_name "$name")
+        _gstack_register_is_umbrella_link "$link_name" && continue
+        _gstack_register_emit_target_entry "$muse_dir/$link_name" "muse/$link_name"
+        _gstack_register_emit_target_entry "$(_gstack_register_managed_marker "$muse_dir/$link_name")" \
+          "muse/$link_name/.gstack-register-managed"
+        _gstack_register_emit_target_entry "$muse_dir/$link_name/SKILL.md" "muse/$link_name/SKILL.md"
+      done
+    else
+      _gstack_register_emit_target_entry "$muse_dir" "muse"
+    fi
+
     if _gstack_register_has_agent gemini; then
       _gstack_register_emit_target_entry "$gemini_ext" "gemini-extension"
       _gstack_register_emit_target_entry "$(_gstack_register_managed_marker "$gemini_ext")" \
@@ -255,7 +281,7 @@ _gstack_register_target_fingerprint() {
 
     _gstack_register_emit_unexpected_managed_targets \
       "$gstack_dir" "$generated_dir" "$claude_dir" "$codex_dir" "$gemini_skill_dir" \
-      "$opencode_dir"
+      "$opencode_dir" "$muse_dir"
   } 2>/dev/null | LC_ALL=C sort | _gstack_register_hash_stream
 }
 
@@ -357,12 +383,13 @@ _gstack_register_emit_source_watch_entries() {
 
 _gstack_register_emit_target_watch_entries() {
   local gstack_dir="$1"
-  local claude_dir codex_dir gemini_ext gemini_skill_dir opencode_dir opencode_root
+  local claude_dir codex_dir muse_dir gemini_ext gemini_skill_dir opencode_dir opencode_root
   local opencode_generated_dir
   local generated_dir
   local i name link_name asset rel skill_dir
   claude_dir="$(_gstack_register_claude_skills_dir)"
   codex_dir="$(_gstack_register_codex_skills_dir)"
+  muse_dir="$(_gstack_register_muse_skills_dir)"
   gemini_ext="$(_gstack_register_gemini_extension_dir)"
   gemini_skill_dir="$(_gstack_register_gemini_skills_dir)"
   opencode_dir="$(_gstack_register_opencode_skills_dir)"
@@ -376,6 +403,7 @@ _gstack_register_emit_target_watch_entries() {
   # fast path and the normal repair scan runs.
   _gstack_register_emit_watch_entry "$claude_dir"
   _gstack_register_emit_watch_entry "$codex_dir"
+  _gstack_register_emit_watch_entry "$muse_dir"
   _gstack_register_emit_watch_entry "$gemini_ext"
   _gstack_register_emit_watch_entry "$gemini_skill_dir"
   _gstack_register_emit_watch_entry "$generated_dir"
@@ -412,6 +440,15 @@ _gstack_register_emit_target_watch_entries() {
     _gstack_register_emit_watch_entry "$codex_dir/$link_name"
     _gstack_register_emit_watch_entry "$(_gstack_register_managed_marker "$codex_dir/$link_name")"
     _gstack_register_emit_watch_entry "$codex_dir/$link_name/SKILL.md"
+  done
+
+  for i in "${!_GSTACK_REGISTER_SOURCE_SKILL_NAMES[@]}"; do
+    name="${_GSTACK_REGISTER_SOURCE_SKILL_NAMES[$i]}"
+    link_name=$(_gstack_register_codex_skill_name "$name")
+    _gstack_register_is_umbrella_link "$link_name" && continue
+    _gstack_register_emit_watch_entry "$muse_dir/$link_name"
+    _gstack_register_emit_watch_entry "$(_gstack_register_managed_marker "$muse_dir/$link_name")"
+    _gstack_register_emit_watch_entry "$muse_dir/$link_name/SKILL.md"
   done
 
   _gstack_register_emit_watch_entry "$gemini_ext"
@@ -452,6 +489,7 @@ _gstack_register_emit_registration_watch_entries() {
 
   printf 'agent\tclaude\t%s\n' "$(_gstack_register_agent_state claude)"
   printf 'agent\tcodex\t%s\n' "$(_gstack_register_agent_state codex)"
+  printf 'agent\tmuse\t%s\n' "$(_gstack_register_agent_state muse)"
   printf 'agent\tgemini\t%s\n' "$(_gstack_register_agent_state gemini)"
   printf 'agent\topencode\t%s\n' "$(_gstack_register_agent_state opencode)"
 

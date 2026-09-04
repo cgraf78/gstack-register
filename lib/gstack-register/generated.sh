@@ -111,7 +111,7 @@ _gstack_register_write_skill_md() {
     _gstack_register_remove_temp "$tmp" || true
     return 1
   }
-  if [ -f "$dst/SKILL.md" ] && cmp -s "$tmp" "$dst/SKILL.md"; then
+  if [ -f "$dst/SKILL.md" ] && _gstack_register_files_equal "$tmp" "$dst/SKILL.md"; then
     _gstack_register_remove_temp "$tmp" || true
     # Content is unchanged, but the freshness gate
     # (_gstack_register_generated_skill_current)
@@ -158,7 +158,7 @@ skills in this extension. Runtime assets live in:
 <!-- gstack-register-source: $gstack_dir/SKILL.md -->
 <!-- gstack-register-generator: $_GSTACK_REGISTER_GEMINI_CONTEXT_VERSION -->
 EOF
-  if [ -f "$dst" ] && cmp -s "$tmp" "$dst"; then
+  if [ -f "$dst" ] && _gstack_register_files_equal "$tmp" "$dst"; then
     _gstack_register_remove_temp "$tmp" || true
   else
     mv "$tmp" "$dst" || {

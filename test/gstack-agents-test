@@ -100,6 +100,8 @@ SH
 chmod +x "$_gstack_repo/setup" "$_gstack_repo/bin/gstack-uninstall"
 
 _gstack_log=$(_tmpdir)/gstack.log
+_gstack_muse_log=$(_tmpdir)/muse.log
+: >"$_gstack_muse_log"
 _gstack_agent_bin=$(_mock_bin)
 cat >"$_gstack_agent_bin/codex" <<'SH'
 #!/usr/bin/env bash
@@ -109,12 +111,50 @@ cat >"$_gstack_agent_bin/gemini" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
-chmod +x "$_gstack_agent_bin/codex" "$_gstack_agent_bin/gemini"
+cat >"$_gstack_agent_bin/muse" <<'SH'
+#!/usr/bin/env bash
+# Mock Muse CLI: user-scope skills live under $HOME/.config/muse/skills.
+skills_dir="$HOME/.config/muse/skills"
+printf 'muse %s\n' "$*" >>"$GSTACK_MUSE_LOG"
+[ "${1:-}" = "skills" ] || exit 0
+case "${2:-}" in
+  list)
+    printf 'NAME\tSCOPE\tDESCRIPTION\tPATH\n'
+    for skill_path in "$skills_dir"/gstack-*/; do
+      [ -f "$skill_path/SKILL.md" ] || continue
+      printf '%s\tuser\tmock\t%s/SKILL.md\n' \
+        "$(basename "$skill_path")" "${skill_path%/}"
+    done
+    ;;
+  install)
+    src=''
+    for arg in "$@"; do
+      case "$arg" in
+        --force | skills | install) continue ;;
+        *) src=$arg ;;
+      esac
+    done
+    [ -n "$src" ] && [ -d "$src" ] || exit 1
+    name=$(basename "$src")
+    mkdir -p "$skills_dir/$name"
+    cp -r "$src/." "$skills_dir/$name/"
+    ;;
+  uninstall)
+    id=${3:-}
+    [ -n "$id" ] || exit 1
+    rm -rf "$skills_dir/$id"
+    ;;
+esac
+SH
+chmod +x "$_gstack_agent_bin/codex" "$_gstack_agent_bin/gemini" \
+  "$_gstack_agent_bin/muse"
 _saved_home=$HOME
 _saved_path=$PATH
 HOME=$_gstack_home
 PATH="$_gstack_agent_bin:$PATH"
+export HOME PATH
 export GSTACK_HOOK_LOG=$_gstack_log
+export GSTACK_MUSE_LOG=$_gstack_muse_log
 
 # shellcheck source=../lib/gstack-register/api.sh
 . "$REAL_HOME/lib/gstack-register/api.sh"
@@ -168,6 +208,18 @@ _assert_contains "gstack: sync rewrites Codex skill name" \
 _assert_contains "gstack: sync quotes invalid Codex YAML descriptions" \
   'description: "QA workflow: catches visual regressions. (gstack)"' \
   "$(cat "$_gstack_home/.codex/skills/gstack-qa/SKILL.md")"
+_assert_eq "gstack: Muse skills resolve below the config home" \
+  "$_gstack_home/.config/muse/skills" "$(_gstack_register_muse_skills_dir)"
+_assert_contains "gstack: sync installs Muse skill through the CLI" \
+  "install --force $_gstack_home/.local/share/gstack-register/skills/gstack-qa" \
+  "$(cat "$_gstack_muse_log")"
+_assert_file_exists "gstack: sync installs Muse source skill" \
+  "$_gstack_home/.config/muse/skills/gstack-qa/SKILL.md"
+_assert_file_exists "gstack: sync marks Muse source skill as managed" \
+  "$_gstack_home/.config/muse/skills/gstack-qa/.gstack-register-managed"
+_assert_eq "gstack: sync installs current Muse skill content" \
+  "$(cat "$_gstack_home/.local/share/gstack-register/skills/gstack-qa/SKILL.md")" \
+  "$(cat "$_gstack_home/.config/muse/skills/gstack-qa/SKILL.md")"
 _assert_contains "gstack: sync rewrites absolute Claude runtime paths" \
   "Run $_gstack_repo/bin/gstack-config" \
   "$(cat "$_gstack_home/.local/share/gstack-register/skills/gstack-qa/SKILL.md")"
@@ -417,12 +469,74 @@ _assert_contains "gstack: missing generated skill forces Codex repair" \
 _assert_file_exists "gstack: cache miss restores missing generated skill" \
   "$_gstack_home/.codex/skills/gstack-qa/SKILL.md"
 
+# Muse registrations are CLI-owned: reinstall drifted content, preserve
+# unmanaged copies, restore missing skills, and skip current ones.
+printf 'drifted Muse content\n' \
+  >>"$_gstack_home/.config/muse/skills/gstack-qa/SKILL.md"
+touch -t 200001010000.00 "$_gstack_home/.cache/gstack-register/registration-v1"
+: >"$_gstack_muse_log"
+if gstack_register_sync; then
+  _pass "gstack: changed Muse skill reinstalls through the CLI"
+else
+  _fail "gstack: changed Muse skill reinstalls through the CLI"
+fi
+_assert_contains "gstack: changed Muse skill forces reinstall" \
+  "install --force" "$(cat "$_gstack_muse_log")"
+_assert_eq "gstack: changed Muse skill is restored" \
+  "$(cat "$_gstack_home/.local/share/gstack-register/skills/gstack-qa/SKILL.md")" \
+  "$(cat "$_gstack_home/.config/muse/skills/gstack-qa/SKILL.md")"
+
+: >"$_gstack_muse_log"
+rm -f "$_gstack_home/.config/muse/skills/gstack-qa/.gstack-register-managed"
+printf 'hand-installed Muse skill\n' \
+  >"$_gstack_home/.config/muse/skills/gstack-qa/SKILL.md"
+touch -t 200001010000.00 "$_gstack_home/.cache/gstack-register/registration-v1"
+_gstack_muse_warn_log=$(_tmpdir)/muse-warn.log
+if gstack_register_sync >"$_gstack_muse_warn_log" 2>&1; then
+  _pass "gstack: unmanaged Muse skill is preserved"
+else
+  _fail "gstack: unmanaged Muse skill is preserved"
+fi
+_assert_not_contains "gstack: unmanaged Muse skill is not reinstalled" \
+  "skills install" "$(cat "$_gstack_muse_log")"
+_assert_contains "gstack: unmanaged Muse skill warns" \
+  "skipping unmanaged Muse skill" "$(cat "$_gstack_muse_warn_log")"
+_assert_file_content "gstack: unmanaged Muse skill content is preserved" \
+  "hand-installed Muse skill" \
+  "$_gstack_home/.config/muse/skills/gstack-qa/SKILL.md"
+
+rm -f "$_gstack_home/.config/muse/skills/gstack-qa/SKILL.md"
+: >"$_gstack_muse_log"
+if gstack_register_sync; then
+  _pass "gstack: cache miss repairs missing Muse skill"
+else
+  _fail "gstack: cache miss repairs missing Muse skill"
+fi
+_assert_contains "gstack: missing Muse skill forces reinstall" \
+  "install --force" "$(cat "$_gstack_muse_log")"
+_assert_file_exists "gstack: cache miss restores missing Muse skill" \
+  "$_gstack_home/.config/muse/skills/gstack-qa/SKILL.md"
+
+: >"$_gstack_muse_log"
+touch -t 200001010000.00 "$_gstack_home/.cache/gstack-register/registration-v1"
+if gstack_register_sync; then
+  _pass "gstack: current Muse skills skip reinstall"
+else
+  _fail "gstack: current Muse skills skip reinstall"
+fi
+_assert_contains "gstack: current Muse skills still enumerate" \
+  "skills list" "$(cat "$_gstack_muse_log")"
+_assert_not_contains "gstack: current Muse skills skip reinstall" \
+  "skills install" "$(cat "$_gstack_muse_log")"
+
 for i in {1..20}; do
   mkdir -p "$_gstack_home/.claude/skills/stale-$i" \
     "$_gstack_home/.codex/skills/gstack-stale-$i" \
+    "$_gstack_home/.config/muse/skills/gstack-stale-$i" \
     "$_gstack_home/.gemini/extensions/gstack/skills/gstack-stale-$i"
   touch "$_gstack_home/.claude/skills/stale-$i/.gstack-register-managed" \
     "$_gstack_home/.codex/skills/gstack-stale-$i/.gstack-register-managed" \
+    "$_gstack_home/.config/muse/skills/gstack-stale-$i/.gstack-register-managed" \
     "$_gstack_home/.gemini/extensions/gstack/skills/gstack-stale-$i/.gstack-register-managed"
   cat >"$_gstack_home/.claude/skills/stale-$i/SKILL.md" <<MD
 ---
@@ -434,12 +548,23 @@ MD
 name: gstack-stale-$i
 ---
 MD
+  cat >"$_gstack_home/.config/muse/skills/gstack-stale-$i/SKILL.md" <<MD
+---
+name: gstack-stale-$i
+---
+MD
   cat >"$_gstack_home/.gemini/extensions/gstack/skills/gstack-stale-$i/SKILL.md" <<MD
 ---
 name: gstack-stale-$i
 ---
 MD
 done
+mkdir -p "$_gstack_home/.config/muse/skills/gstack-keep"
+cat >"$_gstack_home/.config/muse/skills/gstack-keep/SKILL.md" <<'MD'
+---
+name: gstack-keep
+---
+MD
 
 eval "$(declare -f _gstack_register_each_source_skill |
   sed '1s/_gstack_register_each_source_skill/_orig_gstack_register_each_source_skill/')"
@@ -452,6 +577,7 @@ _gstack_register_each_source_skill() {
   printf '.\n' >>"$_gstack_source_scan_log"
   _orig_gstack_register_each_source_skill "$@"
 }
+: >"$_gstack_muse_log"
 if gstack_register_sync; then
   _pass "gstack: registration succeeds with stale managed skills"
 else
@@ -461,6 +587,14 @@ _assert_contains "gstack: stale managed skill bypasses cache" \
   "codex" "$(cat "$_gstack_full_register_log")"
 _assert_file_missing "gstack: cache miss prunes stale managed Codex skill" \
   "$_gstack_home/.codex/skills/gstack-stale-1/SKILL.md"
+_assert_contains "gstack: stale managed Muse skill uninstalls through the CLI" \
+  "uninstall gstack-stale-1" "$(cat "$_gstack_muse_log")"
+_assert_file_missing "gstack: cache miss prunes stale managed Muse skill" \
+  "$_gstack_home/.config/muse/skills/gstack-stale-1/SKILL.md"
+_assert_not_contains "gstack: unmanaged Muse skill is not uninstalled" \
+  "uninstall gstack-keep" "$(cat "$_gstack_muse_log")"
+_assert_file_exists "gstack: unmanaged Muse skill survives stale cleanup" \
+  "$_gstack_home/.config/muse/skills/gstack-keep/SKILL.md"
 _gstack_source_scan_count=$(wc -l <"$_gstack_source_scan_log" | tr -d ' ')
 if [[ "$_gstack_source_scan_count" -le 10 ]]; then
   _pass "gstack: registration reuses source skill scan"
@@ -468,7 +602,45 @@ else
   _fail "gstack: registration reuses source skill scan (expected <= 10 scans, got $_gstack_source_scan_count)"
 fi
 
+# Losing the Muse CLI skips the target and unregisters it; regaining the CLI
+# reinstalls on the next sync. The override models a Muse-less machine without
+# depending on host-installed commands.
+eval "$(declare -f _gstack_register_has_agent | sed \
+  '1s/_gstack_register_has_agent/_orig_muse_gstack_register_has_agent/')"
+# shellcheck disable=SC2329  # gstack_register_sync invokes this by name.
+_gstack_register_has_agent() {
+  case "$1" in
+    muse) return 1 ;;
+  esac
+  _orig_muse_gstack_register_has_agent "$@"
+}
+: >"$_gstack_muse_log"
+if gstack_register_sync; then
+  _pass "gstack: sync unregisters Muse when the CLI is missing"
+else
+  _fail "gstack: sync unregisters Muse when the CLI is missing"
+fi
+_assert_eq "gstack: missing Muse CLI issues no CLI calls" "" "$(cat "$_gstack_muse_log")"
+_assert_file_missing "gstack: missing Muse CLI removes managed Muse skill" \
+  "$_gstack_home/.config/muse/skills/gstack-qa/SKILL.md"
+_assert_file_exists "gstack: missing Muse CLI preserves unmanaged Muse skill" \
+  "$_gstack_home/.config/muse/skills/gstack-keep/SKILL.md"
+eval "$(declare -f _orig_muse_gstack_register_has_agent | sed \
+  '1s/_orig_muse_gstack_register_has_agent/_gstack_register_has_agent/')"
+: >"$_gstack_muse_log"
+if gstack_register_sync; then
+  _pass "gstack: regained Muse CLI reinstalls skills"
+else
+  _fail "gstack: regained Muse CLI reinstalls skills"
+fi
+_assert_contains "gstack: regained Muse CLI reinstalls through the CLI" \
+  "install --force $_gstack_home/.local/share/gstack-register/skills/gstack-qa" \
+  "$(cat "$_gstack_muse_log")"
+_assert_file_exists "gstack: regained Muse CLI restores Muse skill" \
+  "$_gstack_home/.config/muse/skills/gstack-qa/SKILL.md"
+
 : >"$_gstack_log"
+: >"$_gstack_muse_log"
 if gstack_register_uninstall; then
   _pass "gstack: uninstall removes lightweight registrations"
 else
@@ -479,6 +651,14 @@ _assert_file_missing "gstack: uninstall removes Claude source skill" \
   "$_gstack_home/.claude/skills/gstack-qa/SKILL.md"
 _assert_file_missing "gstack: uninstall removes Codex source skill" \
   "$_gstack_home/.codex/skills/gstack-qa/SKILL.md"
+_assert_contains "gstack: uninstall removes Muse skill through the CLI" \
+  "uninstall gstack-qa" "$(cat "$_gstack_muse_log")"
+_assert_file_missing "gstack: uninstall removes Muse source skill" \
+  "$_gstack_home/.config/muse/skills/gstack-qa/SKILL.md"
+_assert_not_contains "gstack: uninstall preserves unmanaged Muse skill" \
+  "uninstall gstack-keep" "$(cat "$_gstack_muse_log")"
+_assert_file_exists "gstack: uninstall keeps unmanaged Muse skill" \
+  "$_gstack_home/.config/muse/skills/gstack-keep/SKILL.md"
 _assert_file_missing "gstack: uninstall removes Codex runtime root" \
   "$_gstack_home/.codex/skills/gstack"
 _assert_file_missing "gstack: uninstall removes shared generated skill" \
@@ -506,16 +686,20 @@ unset -f gstack_register_source_dir gstack_register_migration_stamp \
   _gstack_register_codex_root_is_managed _gstack_register_gemini_extension_is_managed \
   _gstack_register_legacy_codex_fixed_copy_is_gstack \
   _gstack_register_prune_stale_claude _gstack_register_prune_stale_codex \
-  _gstack_register_prune_stale_gemini _gstack_register_prune_stale_generated_skills \
+  _gstack_register_prune_stale_gemini _gstack_register_prune_stale_muse \
+  _gstack_register_prune_stale_generated_skills \
   _gstack_register_link_generated_skill _gstack_register_claude \
   _gstack_register_generated_skill_current _gstack_register_write_skill_md \
   _gstack_register_write_gemini_context _gstack_register_write_generated_skills \
   _gstack_register_remove_skill_link \
-  _gstack_register_codex _gstack_register_gemini \
+  _gstack_register_codex _gstack_register_gemini _gstack_register_muse \
+  _gstack_register_muse_installed_skills _gstack_register_muse_skill_current \
+  _gstack_register_muse_uninstall_skill \
   _gstack_register_unregister_generated_skills _gstack_register_unregister_codex \
-  _gstack_register_unregister_gemini \
+  _gstack_register_unregister_gemini _gstack_register_unregister_muse \
   _orig_gstack_register_each_source_skill _orig_gstack_register_claude \
   _orig_gstack_register_codex _orig_gstack_register_gemini \
+  _orig_muse_gstack_register_has_agent \
   _orig_gstack_register_source_fingerprint _orig_gstack_register_target_fingerprint \
   _gstack_register_agent_state _gstack_register_registration_cache_file \
   _gstack_register_source_fingerprint _gstack_register_emit_target_entry \
@@ -654,14 +838,126 @@ unset -f gstack_register_source_dir gstack_register_migration_stamp \
   _gstack_register_codex_root_is_managed _gstack_register_gemini_extension_is_managed \
   _gstack_register_legacy_codex_fixed_copy_is_gstack \
   _gstack_register_prune_stale_claude _gstack_register_prune_stale_codex \
-  _gstack_register_prune_stale_gemini _gstack_register_prune_stale_generated_skills \
+  _gstack_register_prune_stale_gemini _gstack_register_prune_stale_muse \
+  _gstack_register_prune_stale_generated_skills \
   _gstack_register_link_generated_skill _gstack_register_claude \
   _gstack_register_generated_skill_current _gstack_register_write_skill_md \
   _gstack_register_write_gemini_context _gstack_register_write_generated_skills \
   _gstack_register_remove_skill_link \
-  _gstack_register_codex _gstack_register_gemini \
+  _gstack_register_codex _gstack_register_gemini _gstack_register_muse \
+  _gstack_register_muse_installed_skills _gstack_register_muse_skill_current \
+  _gstack_register_muse_uninstall_skill \
   _gstack_register_unregister_generated_skills _gstack_register_unregister_codex \
-  _gstack_register_unregister_gemini
+  _gstack_register_unregister_gemini _gstack_register_unregister_muse
+unset -f _gstack_register_agent_state _gstack_register_registration_cache_file \
+  _gstack_register_source_fingerprint _gstack_register_emit_target_entry \
+  _gstack_register_emit_unexpected_managed_targets _gstack_register_target_fingerprint \
+  _gstack_register_cache_watch_entry_current _gstack_register_registration_watch_current \
+  _gstack_register_emit_watch_entry _gstack_register_emit_source_watch_entries \
+  _gstack_register_emit_target_watch_entries \
+  _gstack_register_emit_registration_watch_entries \
+  _gstack_register_registration_cache_current _gstack_register_write_registration_cache
+unset _GSTACK_REGISTER_SOURCE_CACHE_DIR _GSTACK_REGISTER_SOURCE_SKILL_DIRS \
+  _GSTACK_REGISTER_SOURCE_SKILL_NAMES _GSTACK_REGISTER_SOURCE_NAME_EXISTS \
+  _GSTACK_REGISTER_SOURCE_CODEX_NAME_EXISTS
+
+# ---------------------------------------------------------------------------
+# gstack muse: sync on a machine without the Muse CLI unregisters the target.
+# Keep this fixture independent of host-installed commands with a restricted
+# PATH, mirroring the Codex-only migration fixture above.
+# ---------------------------------------------------------------------------
+echo "=== gstack muse: missing CLI ==="
+_gstack_muse_absent_home=$(_tmpdir)
+_gstack_muse_absent_repo="$_gstack_muse_absent_home/.local/share/garrytan/gstack"
+_gstack_muse_absent_bin=$(_mock_bin)
+mkdir -p "$_gstack_muse_absent_repo/qa" \
+  "$_gstack_muse_absent_home/.config/muse/skills/gstack-qa" \
+  "$_gstack_muse_absent_home/.config/muse/skills/gstack-keep"
+cat >"$_gstack_muse_absent_repo/SKILL.md" <<'MD'
+---
+name: gstack
+---
+MD
+cat >"$_gstack_muse_absent_repo/qa/SKILL.md" <<'MD'
+---
+name: qa
+---
+MD
+touch "$_gstack_muse_absent_home/.config/muse/skills/gstack-qa/.gstack-register-managed"
+cat >"$_gstack_muse_absent_home/.config/muse/skills/gstack-qa/SKILL.md" <<'MD'
+---
+name: gstack-qa
+---
+MD
+cat >"$_gstack_muse_absent_home/.config/muse/skills/gstack-keep/SKILL.md" <<'MD'
+---
+name: gstack-keep
+---
+MD
+cat >"$_gstack_muse_absent_bin/codex" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+chmod +x "$_gstack_muse_absent_bin/codex"
+_saved_home=$HOME
+_saved_path=$PATH
+HOME=$_gstack_muse_absent_home
+PATH="$_gstack_muse_absent_bin:/usr/bin:/bin"
+export HOME PATH
+
+# shellcheck source=../lib/gstack-register/api.sh
+. "$REAL_HOME/lib/gstack-register/api.sh"
+
+if _gstack_register_has_agent muse; then
+  _fail "gstack: Muse CLI is absent from the fixture PATH"
+else
+  _pass "gstack: Muse CLI is absent from the fixture PATH"
+fi
+if gstack_register_sync; then
+  _pass "gstack: sync succeeds without the Muse CLI"
+else
+  _fail "gstack: sync succeeds without the Muse CLI"
+fi
+_assert_path_missing "gstack: missing Muse CLI removes managed Muse skill" \
+  "$_gstack_muse_absent_home/.config/muse/skills/gstack-qa"
+_assert_file_exists "gstack: missing Muse CLI preserves unmanaged Muse skill" \
+  "$_gstack_muse_absent_home/.config/muse/skills/gstack-keep/SKILL.md"
+_assert_file_exists "gstack: missing Muse CLI still links Codex skill" \
+  "$_gstack_muse_absent_home/.codex/skills/gstack-qa/SKILL.md"
+
+HOME=$_saved_home
+PATH=$_saved_path
+export HOME PATH
+unset GSTACK_MUSE_LOG
+unset -f gstack_register_source_dir gstack_register_migration_stamp \
+  gstack_register_sync gstack_register_uninstall _gstack_register_warn \
+  _gstack_register_log _gstack_register_has_agent _gstack_register_skill_name \
+  _gstack_register_each_source_skill _gstack_register_load_source_skills \
+  _gstack_register_reset_source_cache \
+  _gstack_register_codex_skill_name _gstack_register_codex_skill_name_exists \
+  _gstack_register_is_prefixed_skill_name _gstack_register_each_prefixed_skill_target \
+  _gstack_register_remove_link_if_managed \
+  _gstack_register_points_to_gstack _gstack_register_points_to_generated_skills \
+  _gstack_register_points_to_managed_gstack _gstack_register_skill_dir_is_managed \
+  _gstack_register_managed_marker _gstack_register_mark_managed_dir \
+  _gstack_register_upstream_state_dir _gstack_register_generated_skills_dir \
+  _gstack_register_opencode_generated_skills_dir _gstack_register_muse_skills_dir \
+  _gstack_register_state_entry_is_known \
+  _gstack_register_migrate_state_dir \
+  _gstack_register_codex_root_is_managed _gstack_register_gemini_extension_is_managed \
+  _gstack_register_legacy_codex_fixed_copy_is_gstack \
+  _gstack_register_prune_stale_claude _gstack_register_prune_stale_codex \
+  _gstack_register_prune_stale_gemini _gstack_register_prune_stale_muse \
+  _gstack_register_prune_stale_generated_skills \
+  _gstack_register_link_generated_skill _gstack_register_claude \
+  _gstack_register_generated_skill_current _gstack_register_write_skill_md \
+  _gstack_register_write_gemini_context _gstack_register_write_generated_skills \
+  _gstack_register_remove_skill_link \
+  _gstack_register_codex _gstack_register_gemini _gstack_register_muse \
+  _gstack_register_muse_installed_skills _gstack_register_muse_skill_current \
+  _gstack_register_muse_uninstall_skill \
+  _gstack_register_unregister_generated_skills _gstack_register_unregister_codex \
+  _gstack_register_unregister_gemini _gstack_register_unregister_muse
 unset -f _gstack_register_agent_state _gstack_register_registration_cache_file \
   _gstack_register_source_fingerprint _gstack_register_emit_target_entry \
   _gstack_register_emit_unexpected_managed_targets _gstack_register_target_fingerprint \

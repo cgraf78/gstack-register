@@ -1,6 +1,22 @@
 # shellcheck shell=bash
 # Conservative ownership detection and removal.
 
+# Portable byte-equality for currency checks. `cmp` lives in diffutils, which
+# minimal images (Arch, Fedora/RHEL families) do not install; `cksum` is POSIX
+# and present everywhere coreutils or busybox is. Prefer cmp when available
+# (early exit on first difference), otherwise compare checksums. Missing files
+# are never equal, so a deleted target always repairs.
+_gstack_register_files_equal() {
+  local left="$1" right="$2"
+  [[ -f "$left" ]] || return 1
+  [[ -f "$right" ]] || return 1
+  if command -v cmp >/dev/null 2>&1; then
+    cmp -s "$left" "$right"
+    return
+  fi
+  [[ "$(cksum <"$left")" == "$(cksum <"$right")" ]]
+}
+
 _gstack_register_remove_link_if_managed() {
   local dst="$1" link_dest
   [[ -L "$dst" ]] || return 0

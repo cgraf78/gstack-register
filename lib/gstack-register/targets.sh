@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# Claude, Codex, and Gemini registration targets.
+# Claude, Codex, Gemini, and Muse registration targets.
 
 _gstack_register_legacy_codex_fixed_copy_is_gstack() {
   local skill_md="$1"
@@ -67,6 +67,10 @@ _gstack_register_prune_stale_gemini() {
   _gstack_register_prune_stale_root "$1" "$2"
 }
 
+_gstack_register_prune_stale_muse() {
+  _gstack_register_prune_stale_root "$1" "$2"
+}
+
 _gstack_register_link_all_generated_into() {
   local dest_root="$1" gstack_dir="$2" i name link_name rc=0
   _gstack_register_load_source_skills "$gstack_dir" || return 1
@@ -97,6 +101,77 @@ _gstack_register_codex() {
   _gstack_register_remove_skill_link "$skills_dir/gstack" || return 1
   _gstack_register_prune_stale_codex "$gstack_dir" "$skills_dir" || return 1
   _gstack_register_link_all_generated_into "$skills_dir" "$gstack_dir"
+}
+
+# Muse registrations are CLI-owned: reconcile user-scope skills through the
+# CLI rather than linking into its skills directory directly. Only the gstack-*
+# namespace is ours; banners, headers, and unrelated user skills never match
+# that filter, so plain tabular output is safe to enumerate.
+_gstack_register_muse_installed_skills() {
+  local listing line name
+  listing=$(muse skills list --source user) || return 1
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    name=${line%%[[:space:]]*}
+    case "$name" in
+      gstack-*) printf '%s\n' "$name" ;;
+    esac
+  done <<<"$listing"
+}
+
+_gstack_register_muse_skill_current() {
+  local generated_dir="$1" muse_dir="$2" link_name="$3" installed="$4"
+  grep -qxF -- "$link_name" <<<"$installed" || return 1
+  _gstack_register_files_equal "$generated_dir/$link_name/SKILL.md" \
+    "$muse_dir/$link_name/SKILL.md"
+}
+
+_gstack_register_muse_uninstall_skill() {
+  local muse_dir="$1" id="$2" dst="$1/$2"
+  if { [ -e "$dst" ] || [ -L "$dst" ]; } &&
+    ! _gstack_register_skill_dir_is_managed "$dst"; then
+    _gstack_register_warn \
+      "gstack-register: warning: skipping unmanaged Muse skill at $dst"
+    return 0
+  fi
+  muse skills uninstall "$id"
+}
+
+_gstack_register_muse() {
+  local gstack_dir="$1" generated_dir muse_dir
+  local installed i name link_name id rc=0
+  generated_dir=$(_gstack_register_generated_skills_dir) || return 1
+  muse_dir=$(_gstack_register_muse_skills_dir) || return 1
+  mkdir -p "$muse_dir" || return 1
+  _gstack_register_load_source_skills "$gstack_dir" || return 1
+  installed=$(_gstack_register_muse_installed_skills) || return 1
+  for i in "${!_GSTACK_REGISTER_SOURCE_SKILL_NAMES[@]}"; do
+    name="${_GSTACK_REGISTER_SOURCE_SKILL_NAMES[$i]}"
+    link_name=$(_gstack_register_codex_skill_name "$name")
+    _gstack_register_is_umbrella_link "$link_name" && continue
+    if grep -qxF -- "$link_name" <<<"$installed"; then
+      # Installed but user-owned: preserve it instead of overwriting. A skill
+      # the CLI does not report is (re)installed even over a leftover husk so
+      # a missing registration cannot hide behind a stale directory.
+      if { [ -e "$muse_dir/$link_name" ] || [ -L "$muse_dir/$link_name" ]; } &&
+        ! _gstack_register_skill_dir_is_managed "$muse_dir/$link_name"; then
+        _gstack_register_warn \
+          "gstack-register: warning: skipping unmanaged Muse skill at $muse_dir/$link_name"
+        continue
+      fi
+      if _gstack_register_muse_skill_current \
+        "$generated_dir" "$muse_dir" "$link_name" "$installed"; then
+        continue
+      fi
+    fi
+    muse skills install --force "$generated_dir/$link_name" || rc=1
+  done
+  while IFS= read -r id || [[ -n "$id" ]]; do
+    [[ -n "$id" ]] || continue
+    _gstack_register_codex_skill_name_exists "$gstack_dir" "$id" && continue
+    _gstack_register_muse_uninstall_skill "$muse_dir" "$id" || rc=1
+  done <<<"$installed"
+  _gstack_register_prune_stale_muse "$gstack_dir" "$muse_dir" || rc=1
+  return "$rc"
 }
 
 _gstack_register_gemini() {
@@ -181,6 +256,23 @@ _gstack_register_unregister_codex() {
   skills_dir=$(_gstack_register_codex_skills_dir) || return 1
   _gstack_register_prune_legacy_unprefixed_codex "$skills_dir" || rc=1
   _gstack_register_unregister_skills_root "$skills_dir" || rc=1
+  return "$rc"
+}
+
+_gstack_register_unregister_muse() {
+  local _gstack_dir="$1" muse_dir installed id rc=0
+  muse_dir=$(_gstack_register_muse_skills_dir) || return 1
+  if _gstack_register_has_agent muse; then
+    if installed=$(_gstack_register_muse_installed_skills); then
+      while IFS= read -r id || [[ -n "$id" ]]; do
+        [[ -n "$id" ]] || continue
+        _gstack_register_muse_uninstall_skill "$muse_dir" "$id" || rc=1
+      done <<<"$installed"
+    else
+      rc=1
+    fi
+  fi
+  _gstack_register_unregister_skills_root "$muse_dir" || rc=1
   return "$rc"
 }
 
