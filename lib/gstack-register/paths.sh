@@ -152,6 +152,10 @@ _GSTACK_REGISTER_GENERATED_SKILL_VERSION='gstack-register-skill-v1'
 _GSTACK_REGISTER_OPENCODE_SKILL_VERSION='gstack-register-opencode-skill-v1'
 _GSTACK_REGISTER_GEMINI_CONTEXT_VERSION='gstack-register-gemini-context-v1'
 _GSTACK_REGISTER_REGISTRATION_CACHE_VERSION='gstack-register-registration-v1'
+# Every agent the provider can register. The watch fast path requires each of
+# these to be inventoried in the cache, so a cache written before an agent
+# gained support can never read as current once that agent appears.
+_GSTACK_REGISTER_KNOWN_AGENTS=(claude codex muse gemini opencode)
 _GSTACK_REGISTER_TARGET_FRESHNESS_CACHE_FILE=''
 
 _gstack_register_cksum_file() {
