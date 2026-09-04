@@ -639,6 +639,118 @@ _assert_contains "gstack: regained Muse CLI reinstalls through the CLI" \
 _assert_file_exists "gstack: regained Muse CLI restores Muse skill" \
   "$_gstack_home/.config/muse/skills/gstack-qa/SKILL.md"
 
+# ---------------------------------------------------------------------------
+# gstack muse: a cache written before Muse support existed must not read as
+# current once the Muse CLI appears. The pre-support cache inventories only
+# four agents, so the watch fast path must reject it and the full sync must
+# install the missing Muse skills instead of reporting "current".
+# ---------------------------------------------------------------------------
+echo "=== gstack muse: pre-support cache ==="
+_gstack_muse_stale_home=$(_tmpdir)
+_gstack_muse_stale_repo="$_gstack_muse_stale_home/.local/share/garrytan/gstack"
+_gstack_muse_stale_bin=$(_mock_bin)
+_gstack_muse_stale_log=$(_tmpdir)/muse-stale.log
+mkdir -p "$_gstack_muse_stale_repo/qa"
+cat >"$_gstack_muse_stale_repo/SKILL.md" <<'MD'
+---
+name: gstack
+---
+MD
+cat >"$_gstack_muse_stale_repo/qa/SKILL.md" <<'MD'
+---
+name: qa
+---
+MD
+cat >"$_gstack_muse_stale_bin/codex" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+cat >"$_gstack_muse_stale_bin/muse" <<'SH'
+#!/usr/bin/env bash
+# Mock Muse CLI: user-scope skills live under $HOME/.config/muse/skills.
+skills_dir="$HOME/.config/muse/skills"
+printf 'muse %s\n' "$*" >>"$GSTACK_MUSE_LOG"
+[ "${1:-}" = "skills" ] || exit 0
+case "${2:-}" in
+  list)
+    printf 'NAME\tSCOPE\tDESCRIPTION\tPATH\n'
+    for skill_path in "$skills_dir"/gstack-*/; do
+      [ -f "$skill_path/SKILL.md" ] || continue
+      printf '%s\tuser\tmock\t%s/SKILL.md\n' \
+        "$(basename "$skill_path")" "${skill_path%/}"
+    done
+    ;;
+  install)
+    src=''
+    for arg in "$@"; do
+      case "$arg" in
+        --force | skills | install) continue ;;
+        *) src=$arg ;;
+      esac
+    done
+    [ -n "$src" ] && [ -d "$src" ] || exit 1
+    name=$(basename "$src")
+    mkdir -p "$skills_dir/$name"
+    cp -r "$src/." "$skills_dir/$name/"
+    ;;
+  uninstall)
+    id=${3:-}
+    [ -n "$id" ] || exit 1
+    rm -rf "$skills_dir/$id"
+    ;;
+esac
+SH
+chmod +x "$_gstack_muse_stale_bin/codex" "$_gstack_muse_stale_bin/muse"
+_gstack_saved_home=$HOME
+_gstack_saved_path=$PATH
+_gstack_saved_muse_log=$GSTACK_MUSE_LOG
+HOME=$_gstack_muse_stale_home
+# Keep this fixture independent of host-installed agents: only the mock Codex
+# and Muse CLIs may resolve.
+PATH="$_gstack_muse_stale_bin:/usr/bin:/bin"
+GSTACK_MUSE_LOG=$_gstack_muse_stale_log
+export HOME PATH GSTACK_MUSE_LOG
+: >"$GSTACK_MUSE_LOG"
+
+# shellcheck source=../lib/gstack-register/api.sh
+. "$REAL_HOME/lib/gstack-register/api.sh"
+
+if gstack_register_sync; then
+  _pass "gstack: stale-cache fixture sync succeeds"
+else
+  _fail "gstack: stale-cache fixture sync succeeds"
+fi
+_assert_file_exists "gstack: fixture sync installs the Muse skill" \
+  "$_gstack_muse_stale_home/.config/muse/skills/gstack-qa/SKILL.md"
+
+# Rewrite the fresh cache into the pre-support shape: identical bytes minus
+# every muse line, exactly what a cache written before Muse support contains.
+_gstack_stale_cache=$(_gstack_register_registration_cache_file)
+awk '!/muse/' "$_gstack_stale_cache" >"$_gstack_stale_cache.tmp" &&
+  mv "$_gstack_stale_cache.tmp" "$_gstack_stale_cache"
+_assert_not_contains "gstack: fixture cache models the pre-support shape" \
+  "muse" "$(cat "$_gstack_stale_cache")"
+# Model a machine that never registered with Muse: the skill is gone while
+# every path the old cache watches is untouched.
+rm -rf "$_gstack_muse_stale_home/.config/muse/skills"
+: >"$GSTACK_MUSE_LOG"
+if gstack_register_sync; then
+  _pass "gstack: sync succeeds with a pre-support cache"
+else
+  _fail "gstack: sync succeeds with a pre-support cache"
+fi
+_assert_contains "gstack: pre-support cache reinstalls the Muse skill through the CLI" \
+  "install --force" "$(cat "$GSTACK_MUSE_LOG")"
+_assert_file_exists "gstack: pre-support cache restores the Muse skill" \
+  "$_gstack_muse_stale_home/.config/muse/skills/gstack-qa/SKILL.md"
+_assert_contains "gstack: pre-support cache rewrites the agent inventory" \
+  "muse" "$(cat "$_gstack_stale_cache")"
+
+HOME=$_gstack_saved_home
+PATH=$_gstack_saved_path
+GSTACK_MUSE_LOG=$_gstack_saved_muse_log
+export HOME PATH GSTACK_MUSE_LOG
+
 : >"$_gstack_log"
 : >"$_gstack_muse_log"
 if gstack_register_uninstall; then

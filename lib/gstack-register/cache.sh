@@ -7,7 +7,7 @@
 # validates and repairs the managed tree.
 
 _gstack_register_source_fingerprint() {
-  local gstack_dir="$1" skill_dir rel name sum asset
+  local gstack_dir="$1" skill_dir rel name sum asset agent
 
   {
     # The source fingerprint captures every input that can change what the
@@ -34,26 +34,12 @@ _gstack_register_source_fingerprint() {
         printf 'asset\t%s\tmissing\n' "$asset"
       fi
     done
-    printf 'agent\tclaude\t%s\n' "$(
-      _gstack_register_has_agent claude
-      printf '%s' "$?"
-    )"
-    printf 'agent\tcodex\t%s\n' "$(
-      _gstack_register_has_agent codex
-      printf '%s' "$?"
-    )"
-    printf 'agent\tmuse\t%s\n' "$(
-      _gstack_register_has_agent muse
-      printf '%s' "$?"
-    )"
-    printf 'agent\tgemini\t%s\n' "$(
-      _gstack_register_has_agent gemini
-      printf '%s' "$?"
-    )"
-    printf 'agent\topencode\t%s\n' "$(
-      _gstack_register_has_agent opencode
-      printf '%s' "$?"
-    )"
+    for agent in "${_GSTACK_REGISTER_KNOWN_AGENTS[@]}"; do
+      printf 'agent\t%s\t%s\n' "$agent" "$(
+        _gstack_register_has_agent "$agent"
+        printf '%s' "$?"
+      )"
+    done
 
     while IFS= read -r skill_dir; do
       [ -n "$skill_dir" ] || continue
@@ -311,7 +297,7 @@ _gstack_register_cache_watch_entry_current() {
 
 _gstack_register_registration_watch_current() {
   local cache_file="$1" key first second version='' source='' target=''
-  local saw_watch=0 cache_contents
+  local saw_watch=0 cache_contents seen_agents=' ' expected_agent
 
   cache_contents=$(cat "$cache_file" 2>/dev/null) || return 1
 
@@ -332,6 +318,10 @@ _gstack_register_registration_watch_current() {
         ;;
       agent)
         [ "$second" = "$(_gstack_register_agent_state "$first")" ] || return 1
+        case "$seen_agents" in
+          *" $first "*) ;;
+          *) seen_agents="$seen_agents$first " ;;
+        esac
         ;;
       watch)
         saw_watch=1
@@ -343,6 +333,16 @@ _gstack_register_registration_watch_current() {
   [ "$version" = "$_GSTACK_REGISTER_REGISTRATION_CACHE_VERSION" ] || return 1
   [ -n "$source" ] && [ -n "$target" ] || return 1
   [ "$saw_watch" -eq 1 ] || return 1
+  # A cache written before an agent gained support inventories no state for
+  # it, so every agent comparison above passes vacuously. Require the full
+  # known set: a missing entry means the cache predates that agent and the
+  # slower fingerprint path must validate instead.
+  for expected_agent in "${_GSTACK_REGISTER_KNOWN_AGENTS[@]}"; do
+    case "$seen_agents" in
+      *" $expected_agent "*) ;;
+      *) return 1 ;;
+    esac
+  done
 }
 
 _gstack_register_emit_watch_entry() {
@@ -485,13 +485,11 @@ _gstack_register_emit_target_watch_entries() {
 }
 
 _gstack_register_emit_registration_watch_entries() {
-  local gstack_dir="$1"
+  local gstack_dir="$1" agent
 
-  printf 'agent\tclaude\t%s\n' "$(_gstack_register_agent_state claude)"
-  printf 'agent\tcodex\t%s\n' "$(_gstack_register_agent_state codex)"
-  printf 'agent\tmuse\t%s\n' "$(_gstack_register_agent_state muse)"
-  printf 'agent\tgemini\t%s\n' "$(_gstack_register_agent_state gemini)"
-  printf 'agent\topencode\t%s\n' "$(_gstack_register_agent_state opencode)"
+  for agent in "${_GSTACK_REGISTER_KNOWN_AGENTS[@]}"; do
+    printf 'agent\t%s\t%s\n' "$agent" "$(_gstack_register_agent_state "$agent")"
+  done
 
   _gstack_register_emit_source_watch_entries "$gstack_dir"
   _gstack_register_emit_target_watch_entries "$gstack_dir"
