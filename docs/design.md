@@ -7,7 +7,7 @@ gstack-register owns behavior reusable across configuration managers:
 - source-skill discovery, name normalization, built-in non-skill exclusions,
   and user exclusion parsing;
 - shared and OpenCode-specific generated skill transforms;
-- Claude, Codex, Gemini, and OpenCode registration shapes;
+- Claude, Codex, Gemini, Muse, and OpenCode registration shapes;
 - agent availability, managed ownership markers, collision policy, stale
   cleanup, and uninstall;
 - source and target fingerprints, warm-cache validation, and repair; and
