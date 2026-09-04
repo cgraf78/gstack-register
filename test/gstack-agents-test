@@ -1136,4 +1136,87 @@ _assert_eq "gstack migrate: unexpected symlink still points to its original targ
   "$_gm_elsewhere" "$(readlink "$_gm_home2/.gstack")"
 _assert_contains "gstack migrate: warns on unexpected symlink target" "unexpected" "$_gm_out"
 
+# ---------------------------------------------------------------------------
+# agreement: one sync per known agent, each proving that agent's registration
+# marker exists. The `*) _fail` default is the drift-killer: extending
+# _GSTACK_REGISTER_KNOWN_AGENTS without extending the marker case fails.
+# ---------------------------------------------------------------------------
+echo "=== agreement: per-agent registration markers ==="
+
+# shellcheck source=../lib/gstack-register/api.sh
+. "$REAL_HOME/lib/gstack-register/api.sh"
+
+_agree_saved_home=$HOME
+_agree_saved_path=$PATH
+_agree_saved_muse_log=${GSTACK_MUSE_LOG:-}
+for agent in "${_GSTACK_REGISTER_KNOWN_AGENTS[@]}"; do
+  _agree_h=$(_tmpdir)
+  _agree_repo="$_agree_h/.local/share/garrytan/gstack"
+  mkdir -p "$_agree_repo/qa"
+  printf -- '---\nname: gstack\n---\n' >"$_agree_repo/SKILL.md"
+  printf -- '---\nname: qa\n---\n' >"$_agree_repo/qa/SKILL.md"
+  _agree_bin=$(_mock_bin)
+  if [ "$agent" = "muse" ]; then
+    _agree_log=$(_tmpdir)/muse-agreement.log
+    : >"$_agree_log"
+    cat >"$_agree_bin/muse" <<'SH'
+#!/usr/bin/env bash
+skills_dir="$HOME/.config/muse/skills"
+printf 'muse %s\n' "$*" >>"$GSTACK_MUSE_LOG"
+[ "${1:-}" = "skills" ] || exit 0
+case "${2:-}" in
+  list) printf 'NAME\tSCOPE\tDESCRIPTION\tPATH\n' ;;
+  install)
+    src=''; for arg in "$@"; do case "$arg" in
+      --force | skills | install) continue ;;
+      *) src=$arg ;;
+    esac; done
+    [ -n "$src" ] && [ -d "$src" ] || exit 1
+    mkdir -p "$skills_dir/$(basename "$src")"
+    cp -r "$src/." "$skills_dir/$(basename "$src")/" ;;
+esac
+SH
+    chmod +x "$_agree_bin/muse"
+  else
+    cat >"$_agree_bin/$agent" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+    chmod +x "$_agree_bin/$agent"
+  fi
+  HOME=$_agree_h
+  # Keep each iteration independent of host-installed agents: only that
+  # agent's mock command may resolve.
+  PATH="$_agree_bin:/usr/bin:/bin"
+  export HOME PATH
+  if [ "$agent" = "muse" ]; then
+    GSTACK_MUSE_LOG=$_agree_log
+    export GSTACK_MUSE_LOG
+  else
+    unset GSTACK_MUSE_LOG
+  fi
+  if gstack_register_sync; then
+    _pass "agreement: sync succeeds with only $agent present"
+  else
+    _fail "agreement: sync succeeds with only $agent present"
+  fi
+  case "$agent" in
+    claude) _assert_file_exists "agreement: claude registers its skill" "$_agree_h/.claude/skills/gstack-qa/SKILL.md" ;;
+    codex) _assert_file_exists "agreement: codex registers its skill" "$_agree_h/.codex/skills/gstack-qa/SKILL.md" ;;
+    muse) _assert_file_exists "agreement: muse registers its skill" "$_agree_h/.config/muse/skills/gstack-qa/SKILL.md" ;;
+    gemini) _assert_file_exists "agreement: gemini registers its extension" "$_agree_h/.gemini/extensions/gstack/gemini-extension.json" ;;
+    opencode) _assert_file_exists "agreement: opencode registers its skill" "$_agree_h/.config/opencode/skills/gstack-qa/SKILL.md" ;;
+    *) _fail "agreement: no registration marker defined for $agent" ;;
+  esac
+done
+HOME=$_agree_saved_home
+PATH=$_agree_saved_path
+export HOME PATH
+if [ -n "$_agree_saved_muse_log" ]; then
+  GSTACK_MUSE_LOG=$_agree_saved_muse_log
+  export GSTACK_MUSE_LOG
+else
+  unset GSTACK_MUSE_LOG
+fi
+
 _test_summary
