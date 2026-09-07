@@ -48,6 +48,9 @@ MD
 ln -s "$_gstack_repo" "$_gstack_home/.claude/skills/gstack"
 ln -s gstack/open-gstack-browser "$_gstack_home/.claude/skills/connect-chrome"
 ln -s gstack/checkpoint "$_gstack_home/.claude/skills/checkpoint"
+mkdir -p "$_gstack_home/.grok/skills"
+ln -s "$_gstack_repo" "$_gstack_home/.grok/skills/gstack"
+ln -s gstack/open-gstack-browser "$_gstack_home/.grok/skills/connect-chrome"
 mkdir -p "$_gstack_home/.codex/skills/qa" \
   "$_gstack_home/.codex/skills/review" \
   "$_gstack_home/.codex/skills/removed" \
@@ -216,6 +219,8 @@ _assert_file_exists "gstack: sync marks Grok source skill as managed" \
   "$_gstack_home/.grok/skills/gstack-qa/.gstack-register-managed"
 _assert_file_missing "gstack: sync removes Grok compatibility root" \
   "$_gstack_home/.grok/skills/gstack/SKILL.md"
+_assert_file_missing "gstack: sync removes Grok connect-chrome alias" \
+  "$_gstack_home/.grok/skills/connect-chrome"
 _assert_contains "gstack: sync rewrites Codex skill name" \
   "name: gstack-qa" "$(cat "$_gstack_home/.codex/skills/gstack-qa/SKILL.md")"
 _assert_contains "gstack: sync quotes invalid Codex YAML descriptions" \
