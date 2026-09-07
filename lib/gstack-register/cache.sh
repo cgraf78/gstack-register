@@ -12,7 +12,7 @@ _gstack_register_source_fingerprint() {
   {
     # The source fingerprint captures every input that can change what the
     # registration step should produce. Agent availability is included because
-    # losing Codex/Gemini/Muse/OpenCode should remove registrations for that
+    # losing Codex/Gemini/Grok/Muse/OpenCode should remove registrations for that
     # agent, while gaining one should create them on the next sync.
     printf 'version\t%s\n' "$_GSTACK_REGISTER_REGISTRATION_CACHE_VERSION"
     # The exclude list is a registration input even though it lives outside the
@@ -79,7 +79,7 @@ _gstack_register_emit_target_entry() {
 
 _gstack_register_emit_unexpected_managed_targets() {
   local gstack_dir="$1" generated_dir="$2" claude_dir="$3" codex_dir="$4" gemini_skill_dir="$5"
-  local opencode_dir="$6" muse_dir="$7"
+  local opencode_dir="$6" muse_dir="$7" grok_dir="$8"
   local opencode_generated_dir dst base
   opencode_generated_dir=$(_gstack_register_opencode_generated_skills_dir)
 
@@ -116,6 +116,13 @@ _gstack_register_emit_unexpected_managed_targets() {
     base=$(basename "$dst")
     [ -n "${_GSTACK_REGISTER_SOURCE_CODEX_NAME_EXISTS[$base]+x}" ] && continue
     _gstack_register_skill_dir_is_managed "$dst" || continue
+    printf 'unexpected-target\tgrok/%s\t%s\n' "$base" "$dst"
+  done < <(_gstack_register_each_prefixed_skill_target "$grok_dir")
+
+  while IFS= read -r dst; do
+    base=$(basename "$dst")
+    [ -n "${_GSTACK_REGISTER_SOURCE_CODEX_NAME_EXISTS[$base]+x}" ] && continue
+    _gstack_register_skill_dir_is_managed "$dst" || continue
     printf 'unexpected-target\tmuse/%s\t%s\n' "$base" "$dst"
   done < <(_gstack_register_each_prefixed_skill_target "$muse_dir")
 
@@ -136,12 +143,13 @@ _gstack_register_emit_unexpected_managed_targets() {
 
 _gstack_register_target_fingerprint() {
   local gstack_dir="$1"
-  local claude_dir codex_dir muse_dir gemini_ext gemini_skill_dir opencode_dir opencode_root
+  local claude_dir codex_dir grok_dir muse_dir gemini_ext gemini_skill_dir opencode_dir opencode_root
   local opencode_generated_dir
   local generated_dir
   local i name link_name asset rel skill_dir
   claude_dir="$(_gstack_register_claude_skills_dir)"
   codex_dir="$(_gstack_register_codex_skills_dir)"
+  grok_dir="$(_gstack_register_grok_skills_dir)"
   muse_dir="$(_gstack_register_muse_skills_dir)"
   gemini_ext="$(_gstack_register_gemini_extension_dir)"
   gemini_skill_dir="$(_gstack_register_gemini_skills_dir)"
@@ -198,6 +206,22 @@ _gstack_register_target_fingerprint() {
       done
     else
       _gstack_register_emit_target_entry "$codex_dir/gstack" "codex/gstack"
+    fi
+
+    if _gstack_register_has_agent grok; then
+      _gstack_register_emit_target_entry "$grok_dir/gstack" "grok/gstack"
+      _gstack_register_emit_target_entry "$grok_dir/connect-chrome" "grok/connect-chrome"
+      for i in "${!_GSTACK_REGISTER_SOURCE_SKILL_NAMES[@]}"; do
+        name="${_GSTACK_REGISTER_SOURCE_SKILL_NAMES[$i]}"
+        link_name=$(_gstack_register_codex_skill_name "$name")
+        _gstack_register_is_umbrella_link "$link_name" && continue
+        _gstack_register_emit_target_entry "$grok_dir/$link_name" "grok/$link_name"
+        _gstack_register_emit_target_entry "$(_gstack_register_managed_marker "$grok_dir/$link_name")" \
+          "grok/$link_name/.gstack-register-managed"
+        _gstack_register_emit_target_entry "$grok_dir/$link_name/SKILL.md" "grok/$link_name/SKILL.md"
+      done
+    else
+      _gstack_register_emit_target_entry "$grok_dir/gstack" "grok/gstack"
     fi
 
     if _gstack_register_has_agent muse; then
@@ -267,7 +291,7 @@ _gstack_register_target_fingerprint() {
 
     _gstack_register_emit_unexpected_managed_targets \
       "$gstack_dir" "$generated_dir" "$claude_dir" "$codex_dir" "$gemini_skill_dir" \
-      "$opencode_dir" "$muse_dir"
+      "$opencode_dir" "$muse_dir" "$grok_dir"
   } 2>/dev/null | LC_ALL=C sort | _gstack_register_hash_stream
 }
 
@@ -383,12 +407,13 @@ _gstack_register_emit_source_watch_entries() {
 
 _gstack_register_emit_target_watch_entries() {
   local gstack_dir="$1"
-  local claude_dir codex_dir muse_dir gemini_ext gemini_skill_dir opencode_dir opencode_root
+  local claude_dir codex_dir grok_dir muse_dir gemini_ext gemini_skill_dir opencode_dir opencode_root
   local opencode_generated_dir
   local generated_dir
   local i name link_name asset rel skill_dir
   claude_dir="$(_gstack_register_claude_skills_dir)"
   codex_dir="$(_gstack_register_codex_skills_dir)"
+  grok_dir="$(_gstack_register_grok_skills_dir)"
   muse_dir="$(_gstack_register_muse_skills_dir)"
   gemini_ext="$(_gstack_register_gemini_extension_dir)"
   gemini_skill_dir="$(_gstack_register_gemini_skills_dir)"
@@ -403,6 +428,7 @@ _gstack_register_emit_target_watch_entries() {
   # fast path and the normal repair scan runs.
   _gstack_register_emit_watch_entry "$claude_dir"
   _gstack_register_emit_watch_entry "$codex_dir"
+  _gstack_register_emit_watch_entry "$grok_dir"
   _gstack_register_emit_watch_entry "$muse_dir"
   _gstack_register_emit_watch_entry "$gemini_ext"
   _gstack_register_emit_watch_entry "$gemini_skill_dir"
@@ -440,6 +466,17 @@ _gstack_register_emit_target_watch_entries() {
     _gstack_register_emit_watch_entry "$codex_dir/$link_name"
     _gstack_register_emit_watch_entry "$(_gstack_register_managed_marker "$codex_dir/$link_name")"
     _gstack_register_emit_watch_entry "$codex_dir/$link_name/SKILL.md"
+  done
+
+  _gstack_register_emit_watch_entry "$grok_dir/gstack"
+  _gstack_register_emit_watch_entry "$grok_dir/connect-chrome"
+  for i in "${!_GSTACK_REGISTER_SOURCE_SKILL_NAMES[@]}"; do
+    name="${_GSTACK_REGISTER_SOURCE_SKILL_NAMES[$i]}"
+    link_name=$(_gstack_register_codex_skill_name "$name")
+    _gstack_register_is_umbrella_link "$link_name" && continue
+    _gstack_register_emit_watch_entry "$grok_dir/$link_name"
+    _gstack_register_emit_watch_entry "$(_gstack_register_managed_marker "$grok_dir/$link_name")"
+    _gstack_register_emit_watch_entry "$grok_dir/$link_name/SKILL.md"
   done
 
   for i in "${!_GSTACK_REGISTER_SOURCE_SKILL_NAMES[@]}"; do
@@ -541,7 +578,7 @@ _gstack_register_registration_cache_current() {
 
   # Recompute target state after source matches. This is the expensive part we
   # are trying to avoid most of the time, but it is still much cheaper than
-  # rewriting all generated Claude/Codex/Gemini registrations and it preserves
+  # rewriting all generated Claude/Codex/Gemini/Grok registrations and it preserves
   # sync's role as a repair command when generated files disappear.
   _GSTACK_REGISTER_TARGET_FRESHNESS_CACHE_FILE="$cache_file"
   target_fingerprint=$(_gstack_register_target_fingerprint "$gstack_dir")

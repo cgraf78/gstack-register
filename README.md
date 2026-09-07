@@ -5,7 +5,7 @@
 [![Bash](https://img.shields.io/badge/bash-%3E%3D4.0-blue.svg)](https://www.gnu.org/software/bash/)
 
 `gstack-register` exposes an existing [gstack](https://github.com/garrytan/gstack)
-checkout to Claude, Codex, Gemini, Muse, and OpenCode without running gstack's
+checkout to Claude, Codex, Gemini, Grok, Muse, and OpenCode without running gstack's
 heavier setup or requiring Bun. It generates the agent-specific skill shapes, repairs
 managed links, preserves unrelated skills on collisions, and caches a proven
 steady state for inexpensive repeated syncs.
@@ -106,13 +106,14 @@ Agent-visible registrations are:
 - Claude: `$HOME/.claude/skills/gstack-*`;
 - Codex: `$HOME/.codex/skills/gstack-*`;
 - Gemini: `$HOME/.gemini/extensions/gstack` and its `skills` child;
+- Grok: `$HOME/.grok/skills/gstack-*`;
 - Muse: `$XDG_CONFIG_HOME/muse/skills/gstack-*`; and
 - OpenCode: `$XDG_CONFIG_HOME/opencode/skills/gstack` and `gstack-*`.
 
-The Claude-compatible target is maintained on every sync. Codex, Gemini, Muse,
-and OpenCode targets are maintained only while their corresponding command is
-available; managed targets are removed when an agent disappears. Unmanaged
-paths with the same names are warned about and preserved.
+The Claude-compatible target is maintained on every sync. Codex, Gemini, Grok,
+Muse, and OpenCode targets are maintained only while their corresponding
+command is available; managed targets are removed when an agent disappears.
+Unmanaged paths with the same names are warned about and preserved.
 
 The registration cache lives at
 `$XDG_CACHE_HOME/gstack-register/registration-v1`, falling back to

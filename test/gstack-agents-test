@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Characterize the imported Claude, Codex, Gemini, cache, and migration behavior.
+# Characterize the imported Claude, Codex, Gemini, Grok, cache, and migration behavior.
 
 # shellcheck disable=SC1090,SC1091,SC2034,SC2317
 
@@ -48,6 +48,9 @@ MD
 ln -s "$_gstack_repo" "$_gstack_home/.claude/skills/gstack"
 ln -s gstack/open-gstack-browser "$_gstack_home/.claude/skills/connect-chrome"
 ln -s gstack/checkpoint "$_gstack_home/.claude/skills/checkpoint"
+mkdir -p "$_gstack_home/.grok/skills"
+ln -s "$_gstack_repo" "$_gstack_home/.grok/skills/gstack"
+ln -s gstack/open-gstack-browser "$_gstack_home/.grok/skills/connect-chrome"
 mkdir -p "$_gstack_home/.codex/skills/qa" \
   "$_gstack_home/.codex/skills/review" \
   "$_gstack_home/.codex/skills/removed" \
@@ -111,6 +114,10 @@ cat >"$_gstack_agent_bin/gemini" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
+cat >"$_gstack_agent_bin/grok" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
 cat >"$_gstack_agent_bin/muse" <<'SH'
 #!/usr/bin/env bash
 # Mock Muse CLI: user-scope skills live under $HOME/.config/muse/skills.
@@ -147,7 +154,7 @@ case "${2:-}" in
 esac
 SH
 chmod +x "$_gstack_agent_bin/codex" "$_gstack_agent_bin/gemini" \
-  "$_gstack_agent_bin/muse"
+  "$_gstack_agent_bin/grok" "$_gstack_agent_bin/muse"
 _saved_home=$HOME
 _saved_path=$PATH
 HOME=$_gstack_home
@@ -203,6 +210,17 @@ _assert_file_exists "gstack: sync marks Codex source skill as managed" \
   "$_gstack_home/.codex/skills/gstack-qa/.gstack-register-managed"
 _assert_file_missing "gstack: sync removes legacy Codex runtime root" \
   "$_gstack_home/.codex/skills/gstack/SKILL.md"
+_assert_file_exists "gstack: sync links Grok source skill" \
+  "$_gstack_home/.grok/skills/gstack-qa/SKILL.md"
+_assert_eq "gstack: sync points Grok skill at shared generated skill" \
+  "$_gstack_home/.local/share/gstack-register/skills/gstack-qa" \
+  "$(readlink "$_gstack_home/.grok/skills/gstack-qa")"
+_assert_file_exists "gstack: sync marks Grok source skill as managed" \
+  "$_gstack_home/.grok/skills/gstack-qa/.gstack-register-managed"
+_assert_file_missing "gstack: sync removes Grok compatibility root" \
+  "$_gstack_home/.grok/skills/gstack/SKILL.md"
+_assert_file_missing "gstack: sync removes Grok connect-chrome alias" \
+  "$_gstack_home/.grok/skills/connect-chrome"
 _assert_contains "gstack: sync rewrites Codex skill name" \
   "name: gstack-qa" "$(cat "$_gstack_home/.codex/skills/gstack-qa/SKILL.md")"
 _assert_contains "gstack: sync quotes invalid Codex YAML descriptions" \
@@ -274,6 +292,8 @@ eval "$(declare -f _gstack_register_claude |
   sed '1s/_gstack_register_claude/_orig_gstack_register_claude/')"
 eval "$(declare -f _gstack_register_codex |
   sed '1s/_gstack_register_codex/_orig_gstack_register_codex/')"
+eval "$(declare -f _gstack_register_grok |
+  sed '1s/_gstack_register_grok/_orig_gstack_register_grok/')"
 eval "$(declare -f _gstack_register_gemini |
   sed '1s/_gstack_register_gemini/_orig_gstack_register_gemini/')"
 eval "$(declare -f _gstack_register_source_fingerprint |
@@ -305,6 +325,11 @@ _gstack_register_claude() {
 _gstack_register_codex() {
   printf 'codex\n' >>"$_gstack_full_register_log"
   _orig_gstack_register_codex "$@"
+}
+# shellcheck disable=SC2329  # gstack_register_sync invokes this by name.
+_gstack_register_grok() {
+  printf 'grok\n' >>"$_gstack_full_register_log"
+  _orig_gstack_register_grok "$@"
 }
 # shellcheck disable=SC2329  # gstack_register_sync invokes this by name.
 _gstack_register_gemini() {
@@ -532,10 +557,12 @@ _assert_not_contains "gstack: current Muse skills skip reinstall" \
 for i in {1..20}; do
   mkdir -p "$_gstack_home/.claude/skills/stale-$i" \
     "$_gstack_home/.codex/skills/gstack-stale-$i" \
+    "$_gstack_home/.grok/skills/gstack-stale-$i" \
     "$_gstack_home/.config/muse/skills/gstack-stale-$i" \
     "$_gstack_home/.gemini/extensions/gstack/skills/gstack-stale-$i"
   touch "$_gstack_home/.claude/skills/stale-$i/.gstack-register-managed" \
     "$_gstack_home/.codex/skills/gstack-stale-$i/.gstack-register-managed" \
+    "$_gstack_home/.grok/skills/gstack-stale-$i/.gstack-register-managed" \
     "$_gstack_home/.config/muse/skills/gstack-stale-$i/.gstack-register-managed" \
     "$_gstack_home/.gemini/extensions/gstack/skills/gstack-stale-$i/.gstack-register-managed"
   cat >"$_gstack_home/.claude/skills/stale-$i/SKILL.md" <<MD
@@ -544,6 +571,11 @@ name: stale-$i
 ---
 MD
   cat >"$_gstack_home/.codex/skills/gstack-stale-$i/SKILL.md" <<MD
+---
+name: gstack-stale-$i
+---
+MD
+  cat >"$_gstack_home/.grok/skills/gstack-stale-$i/SKILL.md" <<MD
 ---
 name: gstack-stale-$i
 ---
@@ -587,6 +619,8 @@ _assert_contains "gstack: stale managed skill bypasses cache" \
   "codex" "$(cat "$_gstack_full_register_log")"
 _assert_file_missing "gstack: cache miss prunes stale managed Codex skill" \
   "$_gstack_home/.codex/skills/gstack-stale-1/SKILL.md"
+_assert_file_missing "gstack: cache miss prunes stale managed Grok skill" \
+  "$_gstack_home/.grok/skills/gstack-stale-1/SKILL.md"
 _assert_contains "gstack: stale managed Muse skill uninstalls through the CLI" \
   "uninstall gstack-stale-1" "$(cat "$_gstack_muse_log")"
 _assert_file_missing "gstack: cache miss prunes stale managed Muse skill" \
@@ -763,6 +797,8 @@ _assert_file_missing "gstack: uninstall removes Claude source skill" \
   "$_gstack_home/.claude/skills/gstack-qa/SKILL.md"
 _assert_file_missing "gstack: uninstall removes Codex source skill" \
   "$_gstack_home/.codex/skills/gstack-qa/SKILL.md"
+_assert_file_missing "gstack: uninstall removes Grok source skill" \
+  "$_gstack_home/.grok/skills/gstack-qa/SKILL.md"
 _assert_contains "gstack: uninstall removes Muse skill through the CLI" \
   "uninstall gstack-qa" "$(cat "$_gstack_muse_log")"
 _assert_file_missing "gstack: uninstall removes Muse source skill" \
@@ -799,18 +835,22 @@ unset -f gstack_register_source_dir gstack_register_migration_stamp \
   _gstack_register_legacy_codex_fixed_copy_is_gstack \
   _gstack_register_prune_stale_claude _gstack_register_prune_stale_codex \
   _gstack_register_prune_stale_gemini _gstack_register_prune_stale_muse \
+  _gstack_register_prune_stale_grok \
   _gstack_register_prune_stale_generated_skills \
   _gstack_register_link_generated_skill _gstack_register_claude \
   _gstack_register_generated_skill_current _gstack_register_write_skill_md \
   _gstack_register_write_gemini_context _gstack_register_write_generated_skills \
   _gstack_register_remove_skill_link \
   _gstack_register_codex _gstack_register_gemini _gstack_register_muse \
+  _gstack_register_grok \
   _gstack_register_muse_installed_skills _gstack_register_muse_skill_current \
   _gstack_register_muse_uninstall_skill \
   _gstack_register_unregister_generated_skills _gstack_register_unregister_codex \
   _gstack_register_unregister_gemini _gstack_register_unregister_muse \
+  _gstack_register_unregister_grok \
   _orig_gstack_register_each_source_skill _orig_gstack_register_claude \
   _orig_gstack_register_codex _orig_gstack_register_gemini \
+  _orig_gstack_register_grok \
   _orig_muse_gstack_register_has_agent \
   _orig_gstack_register_source_fingerprint _orig_gstack_register_target_fingerprint \
   _gstack_register_agent_state _gstack_register_registration_cache_file \
@@ -951,16 +991,19 @@ unset -f gstack_register_source_dir gstack_register_migration_stamp \
   _gstack_register_legacy_codex_fixed_copy_is_gstack \
   _gstack_register_prune_stale_claude _gstack_register_prune_stale_codex \
   _gstack_register_prune_stale_gemini _gstack_register_prune_stale_muse \
+  _gstack_register_prune_stale_grok \
   _gstack_register_prune_stale_generated_skills \
   _gstack_register_link_generated_skill _gstack_register_claude \
   _gstack_register_generated_skill_current _gstack_register_write_skill_md \
   _gstack_register_write_gemini_context _gstack_register_write_generated_skills \
   _gstack_register_remove_skill_link \
   _gstack_register_codex _gstack_register_gemini _gstack_register_muse \
+  _gstack_register_grok \
   _gstack_register_muse_installed_skills _gstack_register_muse_skill_current \
   _gstack_register_muse_uninstall_skill \
   _gstack_register_unregister_generated_skills _gstack_register_unregister_codex \
-  _gstack_register_unregister_gemini _gstack_register_unregister_muse
+  _gstack_register_unregister_gemini _gstack_register_unregister_muse \
+  _gstack_register_unregister_grok
 unset -f _gstack_register_agent_state _gstack_register_registration_cache_file \
   _gstack_register_source_fingerprint _gstack_register_emit_target_entry \
   _gstack_register_emit_unexpected_managed_targets _gstack_register_target_fingerprint \
@@ -1054,22 +1097,26 @@ unset -f gstack_register_source_dir gstack_register_migration_stamp \
   _gstack_register_managed_marker _gstack_register_mark_managed_dir \
   _gstack_register_upstream_state_dir _gstack_register_generated_skills_dir \
   _gstack_register_opencode_generated_skills_dir _gstack_register_muse_skills_dir \
+  _gstack_register_grok_skills_dir \
   _gstack_register_state_entry_is_known \
   _gstack_register_migrate_state_dir \
   _gstack_register_codex_root_is_managed _gstack_register_gemini_extension_is_managed \
   _gstack_register_legacy_codex_fixed_copy_is_gstack \
   _gstack_register_prune_stale_claude _gstack_register_prune_stale_codex \
   _gstack_register_prune_stale_gemini _gstack_register_prune_stale_muse \
+  _gstack_register_prune_stale_grok \
   _gstack_register_prune_stale_generated_skills \
   _gstack_register_link_generated_skill _gstack_register_claude \
   _gstack_register_generated_skill_current _gstack_register_write_skill_md \
   _gstack_register_write_gemini_context _gstack_register_write_generated_skills \
   _gstack_register_remove_skill_link \
   _gstack_register_codex _gstack_register_gemini _gstack_register_muse \
+  _gstack_register_grok \
   _gstack_register_muse_installed_skills _gstack_register_muse_skill_current \
   _gstack_register_muse_uninstall_skill \
   _gstack_register_unregister_generated_skills _gstack_register_unregister_codex \
-  _gstack_register_unregister_gemini _gstack_register_unregister_muse
+  _gstack_register_unregister_gemini _gstack_register_unregister_muse \
+  _gstack_register_unregister_grok
 unset -f _gstack_register_agent_state _gstack_register_registration_cache_file \
   _gstack_register_source_fingerprint _gstack_register_emit_target_entry \
   _gstack_register_emit_unexpected_managed_targets _gstack_register_target_fingerprint \
@@ -1206,6 +1253,7 @@ SH
     muse) _assert_file_exists "agreement: muse registers its skill" "$_agree_h/.config/muse/skills/gstack-qa/SKILL.md" ;;
     gemini) _assert_file_exists "agreement: gemini registers its extension" "$_agree_h/.gemini/extensions/gstack/gemini-extension.json" ;;
     opencode) _assert_file_exists "agreement: opencode registers its skill" "$_agree_h/.config/opencode/skills/gstack-qa/SKILL.md" ;;
+    grok) _assert_file_exists "agreement: grok registers its skill" "$_agree_h/.grok/skills/gstack-qa/SKILL.md" ;;
     *) _fail "agreement: no registration marker defined for $agent" ;;
   esac
 done
