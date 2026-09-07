@@ -9,7 +9,7 @@
 - `gstack-opencode-test` covers dependency-free transforms, routing
   descriptions, runtime assets, collisions, partial failures, repair, and agent
   removal;
-- `gstack-agents-test` covers Claude, Codex, Gemini, generated content, cache
+- `gstack-agents-test` covers Claude, Codex, Gemini, Grok, generated content, cache
   fast paths and races, stale cleanup, uninstall, and historical state
   migration; and
 - `install-test` covers the checkout-backed symlink, custom install roots,

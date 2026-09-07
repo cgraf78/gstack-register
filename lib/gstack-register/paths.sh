@@ -111,6 +111,10 @@ _gstack_register_codex_skills_dir() {
   _gstack_register_home_path .codex/skills
 }
 
+_gstack_register_grok_skills_dir() {
+  _gstack_register_home_path .grok/skills
+}
+
 _gstack_register_opencode_skills_dir() {
   local config_home
   config_home=$(_gstack_register_config_home) || return 1
@@ -155,7 +159,7 @@ _GSTACK_REGISTER_REGISTRATION_CACHE_VERSION='gstack-register-registration-v1'
 # Every agent the provider can register. The watch fast path requires each of
 # these to be inventoried in the cache, so a cache written before an agent
 # gained support can never read as current once that agent appears.
-_GSTACK_REGISTER_KNOWN_AGENTS=(claude codex muse gemini opencode)
+_GSTACK_REGISTER_KNOWN_AGENTS=(claude codex muse gemini opencode grok)
 _GSTACK_REGISTER_TARGET_FRESHNESS_CACHE_FILE=''
 
 _gstack_register_cksum_file() {
@@ -198,6 +202,9 @@ _gstack_register_has_agent() {
     opencode)
       command -v "${GSTACK_REGISTER_OPENCODE_COMMAND:-opencode}" >/dev/null 2>&1
       ;;
+    # Grok's CLI is `grok`. A generic `agent` executable is too common to
+    # treat as this runtime.
+    grok) command -v grok >/dev/null 2>&1 ;;
     *) return 1 ;;
   esac
 }
@@ -221,6 +228,7 @@ _gstack_register_validate_runtime_paths() {
   _gstack_register_claude_skills_dir >/dev/null || return 1
   _gstack_register_skill_exclude_file >/dev/null || return 1
   _gstack_register_codex_skills_dir >/dev/null || return 1
+  _gstack_register_grok_skills_dir >/dev/null || return 1
   _gstack_register_muse_skills_dir >/dev/null || return 1
   _gstack_register_opencode_skills_dir >/dev/null || return 1
   _gstack_register_gemini_extension_dir >/dev/null || return 1

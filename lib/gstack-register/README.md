@@ -17,12 +17,12 @@ command rather than source `api.sh`.
   single conservative gate before removal.
 - `migration.sh` repairs the old `$HOME/.gstack` checkout symlink by moving only
   allowlisted upstream runtime entries.
-- `generated.sh` writes the shared Claude/Codex/Gemini skill tree and Gemini
+- `generated.sh` writes the shared Claude/Codex/Gemini/Grok skill tree and Gemini
   context with same-directory temporary files.
 - `opencode.sh` writes OpenCode frontmatter and runtime assets without Bun,
   preserves user-owned roots and skills, and omits the recursive Codex wrapper.
-- `targets.sh` reconciles Claude, Codex, and Gemini links, manifests, stale
-  targets, uninstall, and retired generated trees.
+- `targets.sh` reconciles Claude, Codex, Gemini, Grok, and Muse links, manifests,
+  stale targets, uninstall, and retired generated trees.
 - `cache.sh` fingerprints inputs and outputs, maintains the mtime watch set,
   and re-arms a validated warm cache without hiding concurrent changes.
 

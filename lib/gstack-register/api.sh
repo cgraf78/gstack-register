@@ -74,6 +74,11 @@ gstack_register_sync() {
   else
     _gstack_register_unregister_opencode || return 1
   fi
+  if _gstack_register_has_agent grok; then
+    _gstack_register_grok "$gstack_dir" || return 1
+  else
+    _gstack_register_unregister_grok "$gstack_dir" || return 1
+  fi
 
   # The cache is an optimization. A failed cache write must not turn a correct
   # registration into a failed installation; the next sync simply recomputes.
@@ -96,6 +101,7 @@ gstack_register_uninstall() {
   _gstack_register_unregister_muse "$gstack_dir" || rc=1
   _gstack_register_unregister_gemini || rc=1
   _gstack_register_unregister_opencode || rc=1
+  _gstack_register_unregister_grok "$gstack_dir" || rc=1
   _gstack_register_unregister_generated_skills || rc=1
   _gstack_register_remove_legacy_artifacts || rc=1
   rm -f "$cache_file" "$stamp" || rc=1

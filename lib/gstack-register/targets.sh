@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# Claude, Codex, Gemini, and Muse registration targets.
+# Claude, Codex, Gemini, Grok, and Muse registration targets.
 
 _gstack_register_legacy_codex_fixed_copy_is_gstack() {
   local skill_md="$1"
@@ -71,6 +71,10 @@ _gstack_register_prune_stale_muse() {
   _gstack_register_prune_stale_root "$1" "$2"
 }
 
+_gstack_register_prune_stale_grok() {
+  _gstack_register_prune_stale_root "$1" "$2"
+}
+
 _gstack_register_link_all_generated_into() {
   local dest_root="$1" gstack_dir="$2" i name link_name rc=0
   _gstack_register_load_source_skills "$gstack_dir" || return 1
@@ -100,6 +104,16 @@ _gstack_register_codex() {
   mkdir -p "$skills_dir" || return 1
   _gstack_register_remove_skill_link "$skills_dir/gstack" || return 1
   _gstack_register_prune_stale_codex "$gstack_dir" "$skills_dir" || return 1
+  _gstack_register_link_all_generated_into "$skills_dir" "$gstack_dir"
+}
+
+_gstack_register_grok() {
+  local gstack_dir="$1" skills_dir
+  skills_dir=$(_gstack_register_grok_skills_dir) || return 1
+  mkdir -p "$skills_dir" || return 1
+  _gstack_register_remove_skill_link "$skills_dir/gstack" || return 1
+  _gstack_register_remove_skill_link "$skills_dir/connect-chrome" || return 1
+  _gstack_register_prune_stale_grok "$gstack_dir" "$skills_dir" || return 1
   _gstack_register_link_all_generated_into "$skills_dir" "$gstack_dir"
 }
 
@@ -257,6 +271,12 @@ _gstack_register_unregister_codex() {
   _gstack_register_prune_legacy_unprefixed_codex "$skills_dir" || rc=1
   _gstack_register_unregister_skills_root "$skills_dir" || rc=1
   return "$rc"
+}
+
+_gstack_register_unregister_grok() {
+  local _gstack_dir="$1" skills_dir
+  skills_dir=$(_gstack_register_grok_skills_dir) || return 1
+  _gstack_register_unregister_skills_root "$skills_dir"
 }
 
 _gstack_register_unregister_muse() {
