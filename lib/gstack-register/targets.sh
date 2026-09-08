@@ -72,7 +72,21 @@ _gstack_register_prune_stale_muse() {
 }
 
 _gstack_register_prune_stale_grok() {
-  _gstack_register_prune_stale_root "$1" "$2"
+  local gstack_dir="$1" skills_dir="$2" dst base rc=0
+  [[ -d "$skills_dir" ]] || return 0
+
+  _gstack_register_load_source_skills "$gstack_dir" || return 1
+  for dst in "$skills_dir"/*; do
+    [[ -e "$dst" || -L "$dst" ]] || continue
+    base=$(basename "$dst")
+    _gstack_register_skill_dir_is_managed "$dst" || continue
+    if _gstack_register_codex_skill_name_exists "$gstack_dir" "$base" &&
+      _gstack_register_grok_skill_allowed "$base"; then
+      continue
+    fi
+    _gstack_register_remove_skill_link "$dst" || rc=1
+  done
+  return "$rc"
 }
 
 _gstack_register_link_all_generated_into() {
@@ -108,13 +122,21 @@ _gstack_register_codex() {
 }
 
 _gstack_register_grok() {
-  local gstack_dir="$1" skills_dir
+  local gstack_dir="$1" skills_dir i name link_name rc=0
   skills_dir=$(_gstack_register_grok_skills_dir) || return 1
   mkdir -p "$skills_dir" || return 1
   _gstack_register_remove_skill_link "$skills_dir/gstack" || return 1
   _gstack_register_remove_skill_link "$skills_dir/connect-chrome" || return 1
   _gstack_register_prune_stale_grok "$gstack_dir" "$skills_dir" || return 1
-  _gstack_register_link_all_generated_into "$skills_dir" "$gstack_dir"
+  _gstack_register_load_source_skills "$gstack_dir" || return 1
+  for i in "${!_GSTACK_REGISTER_SOURCE_SKILL_NAMES[@]}"; do
+    name="${_GSTACK_REGISTER_SOURCE_SKILL_NAMES[$i]}"
+    link_name=$(_gstack_register_codex_skill_name "$name")
+    _gstack_register_is_umbrella_link "$link_name" && continue
+    _gstack_register_grok_skill_allowed "$link_name" || continue
+    _gstack_register_write_grok_skill "$link_name" "$skills_dir/$link_name" || rc=1
+  done
+  return "$rc"
 }
 
 # Muse registrations are CLI-owned: reconcile user-scope skills through the

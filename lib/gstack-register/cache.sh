@@ -15,10 +15,12 @@ _gstack_register_source_fingerprint() {
     # losing Codex/Gemini/Grok/Muse/OpenCode should remove registrations for that
     # agent, while gaining one should create them on the next sync.
     printf 'version\t%s\n' "$_GSTACK_REGISTER_REGISTRATION_CACHE_VERSION"
-    # The exclude list is a registration input even though it lives outside the
-    # checkout; hash it so a content edit invalidates the cache even when the
-    # file mtime-based watch entry cannot (for example after a restore).
+    # The exclude list and Grok allowlist are registration inputs even though
+    # they live outside the checkout; hash them so a content edit invalidates
+    # the cache even when the file mtime-based watch entry cannot (for example
+    # after a restore).
     printf 'exclude\t%s\n' "$(_gstack_register_cksum_file "$(_gstack_register_skill_exclude_file)")"
+    printf 'grok-allow\t%s\n' "$(_gstack_register_cksum_file "$(_gstack_register_skill_grok_allow_file)")"
     for asset in SKILL.md bin browse review qa ETHOS.md; do
       if [ -e "$gstack_dir/$asset" ]; then
         if [ -f "$gstack_dir/$asset" ]; then
@@ -114,7 +116,10 @@ _gstack_register_emit_unexpected_managed_targets() {
 
   while IFS= read -r dst; do
     base=$(basename "$dst")
-    [ -n "${_GSTACK_REGISTER_SOURCE_CODEX_NAME_EXISTS[$base]+x}" ] && continue
+    if [ -n "${_GSTACK_REGISTER_SOURCE_CODEX_NAME_EXISTS[$base]+x}" ] &&
+      _gstack_register_grok_skill_allowed "$base"; then
+      continue
+    fi
     _gstack_register_skill_dir_is_managed "$dst" || continue
     printf 'unexpected-target\tgrok/%s\t%s\n' "$base" "$dst"
   done < <(_gstack_register_each_prefixed_skill_target "$grok_dir")
@@ -215,6 +220,7 @@ _gstack_register_target_fingerprint() {
         name="${_GSTACK_REGISTER_SOURCE_SKILL_NAMES[$i]}"
         link_name=$(_gstack_register_codex_skill_name "$name")
         _gstack_register_is_umbrella_link "$link_name" && continue
+        _gstack_register_grok_skill_allowed "$link_name" || continue
         _gstack_register_emit_target_entry "$grok_dir/$link_name" "grok/$link_name"
         _gstack_register_emit_target_entry "$(_gstack_register_managed_marker "$grok_dir/$link_name")" \
           "grok/$link_name/.gstack-register-managed"
@@ -399,10 +405,12 @@ _gstack_register_emit_source_watch_entries() {
     _gstack_register_emit_watch_entry "$skill_dir/SKILL.md"
   done
 
-  # Watch the exclude list itself: editing it changes which skills should be
-  # registered without touching anything in the upstream checkout, so without
-  # this the warm fast path would keep serving the pre-edit registration set.
+  # Watch the exclude list and Grok allowlist: editing either changes which
+  # skills should be registered without touching anything in the upstream
+  # checkout, so without this the warm fast path would keep serving the
+  # pre-edit registration set.
   _gstack_register_emit_watch_entry "$(_gstack_register_skill_exclude_file)"
+  _gstack_register_emit_watch_entry "$(_gstack_register_skill_grok_allow_file)"
 }
 
 _gstack_register_emit_target_watch_entries() {
@@ -474,6 +482,7 @@ _gstack_register_emit_target_watch_entries() {
     name="${_GSTACK_REGISTER_SOURCE_SKILL_NAMES[$i]}"
     link_name=$(_gstack_register_codex_skill_name "$name")
     _gstack_register_is_umbrella_link "$link_name" && continue
+    _gstack_register_grok_skill_allowed "$link_name" || continue
     _gstack_register_emit_watch_entry "$grok_dir/$link_name"
     _gstack_register_emit_watch_entry "$(_gstack_register_managed_marker "$grok_dir/$link_name")"
     _gstack_register_emit_watch_entry "$grok_dir/$link_name/SKILL.md"

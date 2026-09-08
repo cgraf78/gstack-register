@@ -11,18 +11,18 @@ command rather than source `api.sh`.
   roots, version constants, hashes, and availability probes.
 - `temp.sh` owns invocation-scoped scratch files and signal cleanup without
   depending on a caller's trap or temporary-file framework.
-- `source.sh` scans top-level upstream skills once per pass, parses exclusions,
-  and owns the `gstack-*` name policy.
+- `source.sh` scans top-level upstream skills once per pass, parses exclusions
+  and the Grok allowlist, and owns the `gstack-*` name policy.
 - `managed.sh` recognizes new and historical ownership evidence and is the
   single conservative gate before removal.
 - `migration.sh` repairs the old `$HOME/.gstack` checkout symlink by moving only
   allowlisted upstream runtime entries.
-- `generated.sh` writes the shared Claude/Codex/Gemini/Grok skill tree and Gemini
-  context with same-directory temporary files.
+- `generated.sh` writes the shared Claude/Codex/Gemini skill tree, Grok-rewritten
+  dest copies, and Gemini context with same-directory temporary files.
 - `opencode.sh` writes OpenCode frontmatter and runtime assets without Bun,
   preserves user-owned roots and skills, and omits the recursive Codex wrapper.
-- `targets.sh` reconciles Claude, Codex, Gemini, Grok, and Muse links, manifests,
-  stale targets, uninstall, and retired generated trees.
+- `targets.sh` reconciles Claude, Codex, Gemini, Grok, and Muse registrations,
+  manifests, stale targets, uninstall, and retired generated trees.
 - `cache.sh` fingerprints inputs and outputs, maintains the mtime watch set,
   and re-arms a validated warm cache without hiding concurrent changes.
 

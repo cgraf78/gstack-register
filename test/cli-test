@@ -16,6 +16,8 @@ _assert_contains "help: documents sync" "sync" "$help_output"
 _assert_contains "help: documents uninstall" "uninstall" "$help_output"
 _assert_contains "help: documents XDG config" \
   'XDG_CONFIG_HOME/gstack-register/skills-exclude' "$help_output"
+_assert_contains "help: documents Grok allowlist" \
+  'XDG_CONFIG_HOME/gstack-register/skills-grok-allow' "$help_output"
 
 work=$(_tmpdir)
 home="$work/home"
@@ -106,6 +108,7 @@ name: browse
 ---
 MD
 printf 'browse\n' >"$xdg_config/gstack-register/skills-exclude"
+printf 'qa\n' >"$xdg_config/gstack-register/skills-grok-allow"
 printf 'unmanaged\n' >"$home/.claude/skills/manual/SKILL.md"
 cat >"$mock_bin/codex" <<'SH'
 #!/usr/bin/env bash
@@ -185,6 +188,8 @@ _assert_file_missing "uninstall: removes provider cache" \
   "$xdg_cache/gstack-register/registration-v1"
 _assert_file_exists "uninstall: preserves config policy" \
   "$xdg_config/gstack-register/skills-exclude"
+_assert_file_exists "uninstall: preserves Grok allowlist" \
+  "$xdg_config/gstack-register/skills-grok-allow"
 _assert_file_content "uninstall: still preserves unmanaged content" \
   "unmanaged" "$home/.claude/skills/manual/SKILL.md"
 
