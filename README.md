@@ -76,10 +76,24 @@ An exclusion matching no upstream skill emits a warning because a typo would
 otherwise fail open and look successful. See
 [`examples/skills-exclude`](examples/skills-exclude) for a copyable template.
 
-Three integration overrides are supported:
+Grok may optionally receive a subset of that already-filtered set:
+
+```text
+$XDG_CONFIG_HOME/gstack-register/skills-grok-allow
+```
+
+falling back to `$HOME/.config/gstack-register/skills-grok-allow`. Missing or
+empty files keep current behavior: Grok gets every non-excluded skill. When the
+file lists names, Grok registration includes only those skills. Unmatched names
+warn and do not fail-open to the full set. Global exclusions still apply first.
+See [`examples/skills-grok-allow`](examples/skills-grok-allow) for a copyable
+template.
+
+Four integration overrides are supported:
 
 - `GSTACK_REGISTER_SOURCE_DIR` selects an existing gstack checkout;
-- `GSTACK_REGISTER_SKILL_EXCLUDE_FILE` selects a policy file; and
+- `GSTACK_REGISTER_SKILL_EXCLUDE_FILE` selects a policy file;
+- `GSTACK_REGISTER_SKILL_GROK_ALLOW_FILE` selects the Grok allowlist; and
 - `GSTACK_REGISTER_OPENCODE_COMMAND` selects an OpenCode-compatible executable.
 
 Path overrides must be absolute. Relative XDG roots fall back to their standard
@@ -99,7 +113,11 @@ The data root falls back to `$HOME/.local/share`. The shared tree normalizes
 skill names to `gstack-*`, quotes invalid plain YAML descriptions, and rewrites
 absolute Claude gstack runtime paths to the actual checkout. OpenCode receives
 a separate allowlisted frontmatter transform and the runtime assets its skills
-need, while the recursive Codex wrapper is deliberately omitted.
+need, while the recursive Codex wrapper is deliberately omitted. Grok dests are
+rewritten copies of that shared tree, not links into it: `--model "claude"`
+becomes `--model "grok"`, Claude tool names in `allowed-tools` become Grok
+names, `ExitPlanMode`/`AskUserQuestion` become `exit_plan_mode`/
+`ask_user_question`, and `CLAUDE.md` becomes `AGENTS.md`.
 
 Agent-visible registrations are:
 
@@ -119,8 +137,8 @@ The registration cache lives at
 `$XDG_CACHE_HOME/gstack-register/registration-v1`, falling back to
 `$HOME/.cache`. It fingerprints every input and expected output, then uses a
 watched mtime inventory to avoid rescanning unchanged trees. Missing targets,
-source changes, exclusions, agent availability, stale managed targets, and
-runtime-asset changes all force a full repair pass.
+source changes, exclusions, the Grok allowlist, agent availability, stale
+managed targets, and runtime-asset changes all force a full repair pass.
 
 ## Migration and cleanup
 
@@ -139,9 +157,9 @@ unfinished migration.
 
 `uninstall` removes provider-owned agent registrations, generated children,
 cache, and migration state. It does not remove the gstack checkout, the
-exclusion file, upstream `$HOME/.gstack` state, unmanaged agent content, or an
-unknown child placed inside a generated root. Cleanup still works when the
-source checkout has already been removed.
+exclusion file, the Grok allowlist, upstream `$HOME/.gstack` state, unmanaged
+agent content, or an unknown child placed inside a generated root. Cleanup
+still works when the source checkout has already been removed.
 
 ## Failure behavior
 

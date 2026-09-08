@@ -1,0 +1,5 @@
+# Replace these placeholders with upstream skill names Grok should receive.
+# Missing or empty files keep every non-excluded skill. Unmatched names warn
+# and do not fail-open to the full set.
+example-skill
+gstack-another-example  # the prefixed spelling is equivalent

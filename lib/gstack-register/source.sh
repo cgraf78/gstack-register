@@ -3,7 +3,9 @@
 #
 # Registration work needs a stable view of source skills across generated
 # files, target links, and cache fingerprints. Cache the scan per checkout so a
-# single sync does not repeatedly walk the same source tree.
+# single sync does not repeatedly walk the same source tree. The optional Grok
+# allowlist is loaded with that inventory so Grok registration, prune, and
+# cache fingerprints share one parse.
 
 _gstack_register_skill_name() {
   local skill_dir="$1" name
@@ -17,6 +19,17 @@ _gstack_register_skill_name() {
   else
     basename "$skill_dir"
   fi
+}
+
+# Strip comments and surrounding whitespace from one policy-file line. Exclude
+# and Grok-allow parsing share this so a host-edited typo is interpreted the
+# same way in both files.
+_gstack_register_policy_line() {
+  local line="$1"
+  line="${line%%#*}"
+  line="${line#"${line%%[![:space:]]*}"}"
+  line="${line%"${line##*[![:space:]]}"}"
+  printf '%s\n' "$line"
 }
 
 _gstack_register_load_skill_exclusions() {
@@ -34,12 +47,40 @@ _gstack_register_load_skill_exclusions() {
   # accept a final line with no trailing newline. Entries are stored under the
   # normalized gstack-* link name so either spelling works in the file.
   while IFS= read -r line || [ -n "$line" ]; do
-    line="${line%%#*}"
-    line="${line#"${line%%[![:space:]]*}"}"
-    line="${line%"${line##*[![:space:]]}"}"
+    line=$(_gstack_register_policy_line "$line")
     [ -n "$line" ] || continue
     _GSTACK_REGISTER_SKILL_EXCLUDE["$(_gstack_register_codex_skill_name "$line")"]=1
   done <"$file"
+}
+
+_gstack_register_load_grok_allowlist() {
+  local file line
+  file=$(_gstack_register_skill_grok_allow_file)
+  if [ "$_GSTACK_REGISTER_GROK_ALLOW_LOADED" = "$file" ]; then
+    return 0
+  fi
+
+  _GSTACK_REGISTER_GROK_ALLOW_LOADED="$file"
+  _GSTACK_REGISTER_GROK_ALLOW=()
+  _GSTACK_REGISTER_GROK_ALLOW_ACTIVE=''
+  [ -f "$file" ] || return 0
+
+  # Same line syntax as skills-exclude. An empty or comment-only file leaves
+  # ACTIVE unset so Grok keeps the full non-excluded set; any name activates
+  # the allowlist and unmatched names must not fail-open to every skill.
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=$(_gstack_register_policy_line "$line")
+    [ -n "$line" ] || continue
+    _GSTACK_REGISTER_GROK_ALLOW["$(_gstack_register_codex_skill_name "$line")"]=1
+    _GSTACK_REGISTER_GROK_ALLOW_ACTIVE=1
+  done <"$file"
+}
+
+_gstack_register_grok_skill_allowed() {
+  local link_name="$1"
+  _gstack_register_load_grok_allowlist
+  [ "$_GSTACK_REGISTER_GROK_ALLOW_ACTIVE" = 1 ] || return 0
+  [ -n "${_GSTACK_REGISTER_GROK_ALLOW[$link_name]+x}" ]
 }
 
 # Single owner of "which upstream directories are not registrable skills".
@@ -89,10 +130,12 @@ _gstack_register_load_source_skills() {
   _GSTACK_REGISTER_SOURCE_SKILL_NAMES=()
   _GSTACK_REGISTER_SOURCE_NAME_EXISTS=()
   _GSTACK_REGISTER_SOURCE_CODEX_NAME_EXISTS=()
-  # Load exclusions here, in the parent shell. The scan below reads from a
-  # process substitution, so anything _gstack_register_each_source_skill populates
-  # lives only in that subshell and would be invisible to the warning check.
+  # Load exclusions and the Grok allowlist here, in the parent shell. The scan
+  # below reads from a process substitution, so anything
+  # _gstack_register_each_source_skill populates lives only in that subshell and
+  # would be invisible to the warning check.
   _gstack_register_load_skill_exclusions
+  _gstack_register_load_grok_allowlist
 
   while IFS= read -r skill_dir; do
     [ -n "$skill_dir" ] || continue
@@ -104,6 +147,7 @@ _gstack_register_load_source_skills() {
   done < <(_gstack_register_each_source_skill "$gstack_dir")
 
   _gstack_register_warn_unmatched_skill_exclusions "$gstack_dir"
+  _gstack_register_warn_unmatched_grok_allowlist "$gstack_dir"
 }
 
 # An exclusion that matches no upstream directory is almost always a typo, and
@@ -123,6 +167,22 @@ _gstack_register_warn_unmatched_skill_exclusions() {
     "gstack: exclusion matched no upstream skill: ${joined% } ($(_gstack_register_skill_exclude_file))"
 }
 
+# An allowlist typo fails closed for Grok (no extra skills) rather than
+# registering everything. Warn once per scan so the list cannot rot silently.
+_gstack_register_warn_unmatched_grok_allowlist() {
+  local gstack_dir="$1" name joined unmatched=()
+  [ "$_GSTACK_REGISTER_GROK_ALLOW_ACTIVE" = 1 ] || return 0
+  for name in "${!_GSTACK_REGISTER_GROK_ALLOW[@]}"; do
+    _gstack_register_source_skill_dir_exists "$gstack_dir" "$name" && continue
+    unmatched+=("$name")
+  done
+  [ "${#unmatched[@]}" -gt 0 ] || return 0
+
+  joined=$(printf '%s\n' "${unmatched[@]}" | LC_ALL=C sort | tr '\n' ' ')
+  _gstack_register_warn \
+    "gstack: grok allowlist matched no upstream skill: ${joined% } ($(_gstack_register_skill_grok_allow_file))"
+}
+
 _gstack_register_reset_source_cache() {
   _GSTACK_REGISTER_SOURCE_CACHE_DIR=''
   _GSTACK_REGISTER_SOURCE_SKILL_DIRS=()
@@ -131,6 +191,9 @@ _gstack_register_reset_source_cache() {
   _GSTACK_REGISTER_SOURCE_CODEX_NAME_EXISTS=()
   _GSTACK_REGISTER_SKILL_EXCLUDE_LOADED=''
   _GSTACK_REGISTER_SKILL_EXCLUDE=()
+  _GSTACK_REGISTER_GROK_ALLOW_LOADED=''
+  _GSTACK_REGISTER_GROK_ALLOW=()
+  _GSTACK_REGISTER_GROK_ALLOW_ACTIVE=''
 }
 
 _gstack_register_is_prefixed_skill_name() {

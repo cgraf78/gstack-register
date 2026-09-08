@@ -48,6 +48,7 @@ _scan_names() {
 
 # --- baseline: no exclude file -------------------------------------------
 export GSTACK_REGISTER_SKILL_EXCLUDE_FILE="$work/absent-exclude-list"
+export GSTACK_REGISTER_SKILL_GROK_ALLOW_FILE="$work/absent-grok-allow-list"
 _assert_eq "source scan: skips non-skill dirs when no exclude file exists" \
   "browse diagram ios-fix ios-qa qa ship " "$(_scan_names)"
 
@@ -123,6 +124,103 @@ else
   _fail "cache: source fingerprint changes when the exclude list changes"
 fi
 
+# --- Grok allowlist: same line syntax, fail-closed, does not filter source --
+allow="$work/grok-allow"
+printf '# nothing excluded\n' >"$exclude"
+export GSTACK_REGISTER_SKILL_GROK_ALLOW_FILE="$allow"
+_gstack_allow_names() {
+  local i name link_name
+  _gstack_register_reset_source_cache
+  _gstack_register_load_source_skills "$gstack_dir" 2>/dev/null
+  for i in "${!_GSTACK_REGISTER_SOURCE_SKILL_NAMES[@]}"; do
+    name="${_GSTACK_REGISTER_SOURCE_SKILL_NAMES[$i]}"
+    link_name=$(_gstack_register_codex_skill_name "$name")
+    _gstack_register_grok_skill_allowed "$link_name" || continue
+    printf '%s\n' "$name"
+  done | LC_ALL=C sort | tr '\n' ' '
+}
+
+# Missing file: Grok may receive every non-excluded skill.
+export GSTACK_REGISTER_SKILL_GROK_ALLOW_FILE="$work/absent-grok-allow-list"
+_assert_eq "grok allowlist: missing file allows every non-excluded skill" \
+  "browse diagram ios-fix ios-qa qa ship " "$(_gstack_allow_names)"
+_assert_eq "grok allowlist: missing file does not filter the source scan" \
+  "browse diagram ios-fix ios-qa qa ship " "$(_scan_names)"
+
+export GSTACK_REGISTER_SKILL_GROK_ALLOW_FILE="$allow"
+cat >"$allow" <<'EOF'
+# Comment lines and blanks are ignored.
+qa
+
+gstack-ship
+  diagram
+EOF
+_assert_eq "grok allowlist: honors bare, gstack-prefixed, and indented names" \
+  "diagram qa ship " "$(_gstack_allow_names)"
+_assert_eq "grok allowlist: does not remove skills from the source scan" \
+  "browse diagram ios-fix ios-qa qa ship " "$(_scan_names)"
+
+printf 'qa\nship' >"$allow"
+_assert_eq "grok allowlist: applies a final line with no trailing newline" \
+  "qa ship " "$(_gstack_allow_names)"
+
+printf 'qa # only this host\n' >"$allow"
+_assert_eq "grok allowlist: strips inline comments from an entry" \
+  "qa " "$(_gstack_allow_names)"
+
+printf '# nothing listed\n\n' >"$allow"
+_assert_eq "grok allowlist: comment-only file allows every non-excluded skill" \
+  "browse diagram ios-fix ios-qa qa ship " "$(_gstack_allow_names)"
+
+printf 'gstack-typo-here\nship\n' >"$allow"
+_gstack_register_reset_source_cache
+warn_output=$(_gstack_register_load_source_skills "$gstack_dir" 2>&1 >/dev/null)
+_assert_contains "grok allowlist: warns about an entry matching no upstream skill" \
+  "gstack-typo-here" "$warn_output"
+_assert_not_contains "grok allowlist: does not warn about an entry that matched" \
+  "gstack-ship" "$warn_output"
+_assert_eq "grok allowlist: a typo does not fail-open to every skill" \
+  "ship " "$(_gstack_allow_names)"
+
+# Global exclusions still apply first: an allowlisted-but-excluded skill is
+# absent from the source inventory even though the allowlist entry matches.
+printf 'browse\n' >"$exclude"
+printf 'browse\nship\n' >"$allow"
+_gstack_register_reset_source_cache
+_gstack_register_load_source_skills "$gstack_dir" 2>/dev/null
+_assert_eq "grok allowlist: excluded skills stay out of the source inventory" \
+  "" "${_GSTACK_REGISTER_SOURCE_CODEX_NAME_EXISTS["gstack-browse"]+present}"
+_assert_eq "grok allowlist: retained allowlisted skills stay in the inventory" \
+  "present" "${_GSTACK_REGISTER_SOURCE_CODEX_NAME_EXISTS["gstack-ship"]+present}"
+
+_gstack_register_reset_source_cache
+before=$(_gstack_register_source_fingerprint "$gstack_dir")
+printf 'diagram\n' >"$allow"
+_gstack_register_reset_source_cache
+after=$(_gstack_register_source_fingerprint "$gstack_dir")
+if [ "$before" != "$after" ]; then
+  _pass "cache: source fingerprint changes when the grok allowlist changes"
+else
+  _fail "cache: source fingerprint changes when the grok allowlist changes"
+fi
+
+example_allow_gstack_dir="$work/example-grok-gstack"
+for name in example-skill another-example retained-example; do
+  mkdir -p "$example_allow_gstack_dir/$name"
+  printf -- '---\nname: %s\ndescription: example fixture\n---\n' "$name" \
+    >"$example_allow_gstack_dir/$name/SKILL.md"
+done
+export GSTACK_REGISTER_SKILL_EXCLUDE_FILE="$work/absent-exclude-list"
+export GSTACK_REGISTER_SKILL_GROK_ALLOW_FILE="$repo_root/examples/skills-grok-allow"
+_gstack_register_reset_source_cache
+_gstack_register_load_source_skills "$example_allow_gstack_dir" 2>/dev/null
+_assert_eq "examples: checked-in grok allowlist allows example-skill" \
+  "present" "$(_gstack_register_grok_skill_allowed gstack-example-skill && printf present)"
+_assert_eq "examples: checked-in grok allowlist allows prefixed another-example" \
+  "present" "$(_gstack_register_grok_skill_allowed gstack-another-example && printf present)"
+_assert_eq "examples: checked-in grok allowlist omits retained-example" \
+  "" "$(_gstack_register_grok_skill_allowed gstack-retained-example && printf present)"
+
 # Keep the copyable policy file on the same parser path as real configuration.
 # Synthetic names make this safe for a public repository while still proving
 # comments and the accepted prefixed spelling remain valid.
@@ -133,6 +231,7 @@ for name in example-skill another-example retained-example; do
     >"$example_gstack_dir/$name/SKILL.md"
 done
 export GSTACK_REGISTER_SKILL_EXCLUDE_FILE="$repo_root/examples/skills-exclude"
+export GSTACK_REGISTER_SKILL_GROK_ALLOW_FILE="$work/absent-grok-allow-list"
 _gstack_register_reset_source_cache
 example_names=$(
   _gstack_register_each_source_skill "$example_gstack_dir" |

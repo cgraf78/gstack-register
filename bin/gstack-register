@@ -62,10 +62,12 @@ Commands:
 
 Configuration:
   $XDG_CONFIG_HOME/gstack-register/skills-exclude
+  $XDG_CONFIG_HOME/gstack-register/skills-grok-allow
 
 The config root falls back to $HOME/.config when XDG_CONFIG_HOME is unset or
-relative. GSTACK_REGISTER_SOURCE_DIR, GSTACK_REGISTER_SKILL_EXCLUDE_FILE, and
-GSTACK_REGISTER_OPENCODE_COMMAND provide explicit integration overrides.
+relative. GSTACK_REGISTER_SOURCE_DIR, GSTACK_REGISTER_SKILL_EXCLUDE_FILE,
+GSTACK_REGISTER_SKILL_GROK_ALLOW_FILE, and GSTACK_REGISTER_OPENCODE_COMMAND
+provide explicit integration overrides.
 EOF
 }
 

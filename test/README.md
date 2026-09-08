@@ -5,13 +5,13 @@
 - `cli-test` covers the public command, XDG roots, absolute-path validation,
   legacy takeover ordering, source-absent uninstall, and signal cleanup;
 - `gstack-register-test` covers discovery, built-in skips, every exclusion-file
-  syntax, unmatched warnings, and cache invalidation;
+  and Grok-allowlist syntax, unmatched warnings, and cache invalidation;
 - `gstack-opencode-test` covers dependency-free transforms, routing
   descriptions, runtime assets, collisions, partial failures, repair, and agent
   removal;
-- `gstack-agents-test` covers Claude, Codex, Gemini, Grok, generated content, cache
-  fast paths and races, stale cleanup, uninstall, and historical state
-  migration; and
+- `gstack-agents-test` covers Claude, Codex, Gemini, Grok, generated content,
+  Grok allowlist and rewrite, cache fast paths and races, stale cleanup,
+  uninstall, and historical state migration; and
 - `install-test` covers the checkout-backed symlink, custom install roots,
   idempotence, and refusal to overwrite a user-owned command.
 

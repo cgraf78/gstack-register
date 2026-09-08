@@ -107,6 +107,17 @@ _gstack_register_skill_exclude_file() {
   printf '%s/gstack-register/skills-exclude\n' "$config_home"
 }
 
+_gstack_register_skill_grok_allow_file() {
+  local config_home
+  if [[ -n "${GSTACK_REGISTER_SKILL_GROK_ALLOW_FILE:-}" ]]; then
+    _gstack_register_override_path GSTACK_REGISTER_SKILL_GROK_ALLOW_FILE \
+      "$GSTACK_REGISTER_SKILL_GROK_ALLOW_FILE"
+    return
+  fi
+  config_home=$(_gstack_register_config_home) || return 1
+  printf '%s/gstack-register/skills-grok-allow\n' "$config_home"
+}
+
 _gstack_register_codex_skills_dir() {
   _gstack_register_home_path .codex/skills
 }
@@ -152,10 +163,16 @@ declare -A _GSTACK_REGISTER_SOURCE_NAME_EXISTS=()
 declare -A _GSTACK_REGISTER_SOURCE_CODEX_NAME_EXISTS=()
 declare -A _GSTACK_REGISTER_SKILL_EXCLUDE=()
 _GSTACK_REGISTER_SKILL_EXCLUDE_LOADED=''
+declare -A _GSTACK_REGISTER_GROK_ALLOW=()
+_GSTACK_REGISTER_GROK_ALLOW_LOADED=''
+_GSTACK_REGISTER_GROK_ALLOW_ACTIVE=''
 _GSTACK_REGISTER_GENERATED_SKILL_VERSION='gstack-register-skill-v1'
+_GSTACK_REGISTER_GROK_SKILL_VERSION='gstack-register-grok-skill-v1'
 _GSTACK_REGISTER_OPENCODE_SKILL_VERSION='gstack-register-opencode-skill-v1'
 _GSTACK_REGISTER_GEMINI_CONTEXT_VERSION='gstack-register-gemini-context-v1'
-_GSTACK_REGISTER_REGISTRATION_CACHE_VERSION='gstack-register-registration-v1'
+# v2: Grok allowlist is a source input and Grok dests are rewritten copies.
+# A v1 watch inventory can still look current after that contract change.
+_GSTACK_REGISTER_REGISTRATION_CACHE_VERSION='gstack-register-registration-v2'
 # Every agent the provider can register. The watch fast path requires each of
 # these to be inventoried in the cache, so a cache written before an agent
 # gained support can never read as current once that agent appears.
@@ -227,6 +244,7 @@ _gstack_register_validate_runtime_paths() {
   _gstack_register_opencode_generated_skills_dir >/dev/null || return 1
   _gstack_register_claude_skills_dir >/dev/null || return 1
   _gstack_register_skill_exclude_file >/dev/null || return 1
+  _gstack_register_skill_grok_allow_file >/dev/null || return 1
   _gstack_register_codex_skills_dir >/dev/null || return 1
   _gstack_register_grok_skills_dir >/dev/null || return 1
   _gstack_register_muse_skills_dir >/dev/null || return 1

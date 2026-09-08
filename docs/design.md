@@ -5,8 +5,8 @@
 gstack-register owns behavior reusable across configuration managers:
 
 - source-skill discovery, name normalization, built-in non-skill exclusions,
-  and user exclusion parsing;
-- shared and OpenCode-specific generated skill transforms;
+  user exclusion parsing, and the optional Grok allowlist;
+- shared, Grok, and OpenCode-specific generated skill transforms;
 - Claude, Codex, Gemini, Grok, Muse, and OpenCode registration shapes;
 - agent availability, managed ownership markers, collision policy, stale
   cleanup, and uninstall;
@@ -22,15 +22,19 @@ must not learn that consumer's overlay, fleet, host, or policy-fragment model.
 
 The committed gstack checkout uses Claude-oriented skill content. Codex and
 Gemini need globally unique `gstack-*` names, while OpenCode requires a smaller
-frontmatter schema and a native runtime root. Linking the upstream files
-directly would either mutate the checkout or make each consumer reimplement the
-same transforms.
+frontmatter schema and a native runtime root. Grok has no upstream host, so the
+Claude-shaped bodies would tell it to call Claude tools, `--model "claude"`,
+`ExitPlanMode`, and `CLAUDE.md`. Linking the upstream files directly would
+either mutate the checkout or make each consumer reimplement the same
+transforms.
 
 The shared generated tree rewrites only the runtime paths that historically
 referenced a global Claude gstack root. Project-relative `.claude/skills` paths
-remain project-relative. OpenCode generation recovers routing text for its
-description, allowlists frontmatter, rewrites global skill paths, and omits the
-Codex wrapper so OpenCode cannot recursively invoke another agent.
+remain project-relative. Grok dests are rewritten copies of that shared tree,
+not links into it, so Claude/Codex/Gemini never observe Grok tool names.
+OpenCode generation recovers routing text for its description, allowlists
+frontmatter, rewrites global skill paths, and omits the Codex wrapper so
+OpenCode cannot recursively invoke another agent.
 
 No transform runs gstack `setup` or Bun. Upstream changes that affect generated
 host contracts must be reviewed here and covered by a synthetic fixture rather
@@ -42,7 +46,7 @@ Configuration, durable generated data, cache, and migration state have separate
 roots:
 
 ```text
-config  $XDG_CONFIG_HOME/gstack-register/skills-exclude
+config  $XDG_CONFIG_HOME/gstack-register/{skills-exclude,skills-grok-allow}
 data    $XDG_DATA_HOME/gstack-register/{skills,opencode-skills}
 cache   $XDG_CACHE_HOME/gstack-register/registration-v1
 state   $XDG_STATE_HOME/gstack-register/legacy-dotfiles-v1
@@ -80,10 +84,10 @@ completion stamp disables the warm fast path so interrupted cleanup is retried.
 ## Cache correctness
 
 The source fingerprint includes every registrable `SKILL.md`, runtime asset,
-agent availability state, and exclusion-file checksum. The target fingerprint
-includes each expected agent link, generated file, marker, and unexpected
-managed child. A cache entry also stores mtime watch records for the relevant
-sources, outputs, and parent directories.
+agent availability state, and the exclusion-file and Grok-allowlist checksums.
+The target fingerprint includes each expected agent link, generated file,
+marker, and unexpected managed child. A cache entry also stores mtime watch
+records for the relevant sources, outputs, and parent directories.
 
 An unchanged watch inventory is the cheapest fast path. A newer path falls
 back to source and target fingerprints. When those still match, the cache is
