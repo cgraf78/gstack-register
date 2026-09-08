@@ -167,7 +167,7 @@ declare -A _GSTACK_REGISTER_GROK_ALLOW=()
 _GSTACK_REGISTER_GROK_ALLOW_LOADED=''
 _GSTACK_REGISTER_GROK_ALLOW_ACTIVE=''
 _GSTACK_REGISTER_GENERATED_SKILL_VERSION='gstack-register-skill-v1'
-_GSTACK_REGISTER_GROK_SKILL_VERSION='gstack-register-grok-skill-v1'
+_GSTACK_REGISTER_GROK_SKILL_VERSION='gstack-register-grok-skill-v2'
 _GSTACK_REGISTER_OPENCODE_SKILL_VERSION='gstack-register-opencode-skill-v1'
 _GSTACK_REGISTER_GEMINI_CONTEXT_VERSION='gstack-register-gemini-context-v1'
 # v2: Grok allowlist is a source input and Grok dests are rewritten copies.

@@ -29,6 +29,7 @@ allowed-tools:
   - Bash
   - Read
   - AskUserQuestion
+  - Agent
 ---
 
 Run ~/.claude/skills/gstack/bin/gstack-config and keep .claude/skills/gstack vendored checks local.
@@ -234,6 +235,10 @@ _assert_contains "gstack: sync rewrites Grok allowed-tools" \
   "run_terminal_command" "$(cat "$_gstack_home/.grok/skills/gstack-qa/SKILL.md")"
 _assert_contains "gstack: sync rewrites Grok AskUserQuestion" \
   "ask_user_question" "$(cat "$_gstack_home/.grok/skills/gstack-qa/SKILL.md")"
+_assert_contains "gstack: sync rewrites Grok Agent tool" \
+  "spawn_subagent" "$(cat "$_gstack_home/.grok/skills/gstack-qa/SKILL.md")"
+_assert_not_contains "gstack: Grok dest does not keep Claude Agent tool" \
+  $'- Agent\n' "$(cat "$_gstack_home/.grok/skills/gstack-qa/SKILL.md")"
 _assert_contains "gstack: sync rewrites Grok ExitPlanMode" \
   "exit_plan_mode" "$(cat "$_gstack_home/.grok/skills/gstack-qa/SKILL.md")"
 _assert_not_contains "gstack: Grok dest does not keep Claude model flag" \
@@ -1256,6 +1261,7 @@ allowed-tools:
   - Grep
   - Glob
   - Task
+  - Agent
 ---
 
 "$_SS" --skill "investigate" --model "claude" --parent-pid "$PPID"

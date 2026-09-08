@@ -191,6 +191,7 @@ _gstack_register_write_grok_skill() {
       if (name == "WebSearch") return "web_search"
       if (name == "AskUserQuestion") return "ask_user_question"
       if (name == "Task") return "spawn_subagent"
+      if (name == "Agent") return "spawn_subagent"
       return name
     }
     function rewrite_body(line) {
