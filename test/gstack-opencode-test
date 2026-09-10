@@ -346,6 +346,77 @@ _assert_file_content "OpenCode: preserves an unmanaged runtime root" \
 _assert_file_exists "OpenCode: an unmanaged root keeps upstream-owned sibling skills" \
   "$fixture_home/.config/opencode/skills/gstack-upstream-owned/SKILL.md"
 
+# An unresolvable GSTACK_REGISTER_OPENCODE_COMMAND fails closed: sync refuses
+# to touch opencode registrations instead of reading the typo as "absent" and
+# uninstalling them.
+_assert_file_exists "OpenCode: managed skill present before override failure" \
+  "$fixture_home/.config/opencode/skills/gstack-qa/SKILL.md"
+_opencode_before=$(cd "$fixture_home/.config/opencode/skills" && ls)
+GSTACK_REGISTER_OPENCODE_COMMAND=typo-cmd-missing-xyz
+export GSTACK_REGISTER_OPENCODE_COMMAND
+_opencode_rc=0
+_opencode_out=$(gstack_register_sync 2>&1) || _opencode_rc=$?
+_assert_exit "OpenCode: unresolvable override fails sync" 1 "$_opencode_rc"
+_assert_contains "OpenCode: override failure names the override" \
+  "typo-cmd-missing-xyz" "$_opencode_out"
+_assert_contains "OpenCode: override failure refuses opencode changes" \
+  "refusing to update opencode registrations" "$_opencode_out"
+_opencode_after=$(cd "$fixture_home/.config/opencode/skills" && ls)
+_assert_eq "OpenCode: failed sync leaves managed links untouched" \
+  "$_opencode_before" "$_opencode_after"
+unset GSTACK_REGISTER_OPENCODE_COMMAND
+if gstack_register_sync >/dev/null 2>&1; then
+  _pass "OpenCode: sync recovers after the override is cleared"
+else
+  _fail "OpenCode: sync recovers after the override is cleared"
+fi
+
+# The override validator accepts runnable commands and rejects the rest.
+GSTACK_REGISTER_OPENCODE_COMMAND=opencode
+export GSTACK_REGISTER_OPENCODE_COMMAND
+if _gstack_register_check_opencode_override 2>/dev/null; then
+  _pass "OpenCode: runnable override on PATH passes validation"
+else
+  _fail "OpenCode: runnable override on PATH passes validation"
+fi
+GSTACK_REGISTER_OPENCODE_COMMAND="$mock_bin/opencode"
+if _gstack_register_check_opencode_override 2>/dev/null; then
+  _pass "OpenCode: absolute executable override passes validation"
+else
+  _fail "OpenCode: absolute executable override passes validation"
+fi
+GSTACK_REGISTER_OPENCODE_COMMAND=/nonexistent/opencode-xyz
+_opencode_rc=0
+_opencode_out=$(_gstack_register_check_opencode_override 2>&1) || _opencode_rc=$?
+_assert_exit "OpenCode: missing absolute override fails validation" 1 "$_opencode_rc"
+_assert_contains "OpenCode: missing absolute override is reported" \
+  "not executable" "$_opencode_out"
+printf 'not executable\n' >"$mock_bin/not-executable"
+chmod 644 "$mock_bin/not-executable"
+GSTACK_REGISTER_OPENCODE_COMMAND=not-executable
+_opencode_rc=0
+_opencode_out=$(_gstack_register_check_opencode_override 2>&1) || _opencode_rc=$?
+_assert_exit "OpenCode: non-executable override on PATH fails validation" 1 "$_opencode_rc"
+rm -f "$mock_bin/not-executable"
+mkdir -p "$mock_bin/opencode-dir"
+GSTACK_REGISTER_OPENCODE_COMMAND="$mock_bin/opencode-dir"
+_opencode_rc=0
+_opencode_out=$(_gstack_register_check_opencode_override 2>&1) || _opencode_rc=$?
+_assert_exit "OpenCode: directory override fails validation" 1 "$_opencode_rc"
+_assert_contains "OpenCode: directory override is reported" \
+  "not executable" "$_opencode_out"
+rmdir "$mock_bin/opencode-dir"
+GSTACK_REGISTER_OPENCODE_COMMAND="opencode --flag"
+_opencode_rc=0
+_opencode_out=$(_gstack_register_check_opencode_override 2>&1) || _opencode_rc=$?
+_assert_exit "OpenCode: override with flags fails validation" 1 "$_opencode_rc"
+unset GSTACK_REGISTER_OPENCODE_COMMAND
+if _gstack_register_check_opencode_override 2>/dev/null; then
+  _pass "OpenCode: unset override passes validation"
+else
+  _fail "OpenCode: unset override passes validation"
+fi
+
 HOME=$saved_home
 PATH=$saved_path
 export HOME PATH

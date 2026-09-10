@@ -1218,6 +1218,241 @@ _assert_eq "gstack migrate: unexpected symlink still points to its original targ
   "$_gm_elsewhere" "$(readlink "$_gm_home2/.gstack")"
 _assert_contains "gstack migrate: warns on unexpected symlink target" "unexpected" "$_gm_out"
 
+# --- migration failure paths: every move is checked, nothing strands silently
+# Resolve bash once with the ambient PATH: the drivers below override PATH
+# (mock bin first), and a bare `bash` would not resolve on systems without
+# /usr/bin (e.g. Termux keeps it under $PREFIX/bin).
+_gm_bash=$(command -v bash)
+_run_gstack_migrate_with_path() { # $1=HOME $2=checkout $3=PATH
+  # shellcheck disable=SC2016 # Single quotes are intentional: $1/$2 must expand in the child shell, not here.
+  HOME="$1" PATH="$3" "$_gm_bash" -c '
+    . "$1/paths.sh"
+    . "$1/migration.sh"
+    _gstack_register_migrate_state_dir "$2"
+  ' _ "$_gstack_mig_lib" "$2" 2>&1
+}
+
+# Mock mv that delegates to the real one until a configured call number, so a
+# failure can be placed in the stage phase or the restore phase deterministically.
+_gm_fail_bin=$(_mock_bin)
+cat >"$_gm_fail_bin/mv" <<'SH'
+#!/usr/bin/env bash
+n=$(cat "$MOCK_MV_COUNT_FILE" 2>/dev/null || echo 0)
+n=$((n + 1))
+printf '%s\n' "$n" >"$MOCK_MV_COUNT_FILE"
+if [ "$n" -ge "$MOCK_MV_FAIL_AT" ]; then
+  echo "mock mv: refusing call $n: $*" >&2
+  exit 1
+fi
+exec "$MOCK_MV_REAL" "$@"
+SH
+chmod +x "$_gm_fail_bin/mv"
+_gm_real_mv=$(command -v mv)
+
+_gm_new_checkout() { # $1=home-dir; prints a checkout with two known entries
+  local checkout
+  checkout=$(_tmpdir)
+  mkdir -p "$checkout/sessions"
+  printf 'state\n' >"$checkout/sessions/s1.json"
+  printf 'cfg: 1\n' >"$checkout/config.yaml"
+  printf -- '---\nname: gstack\n---\n' >"$checkout/SKILL.md"
+  ln -s "$checkout" "$1/.gstack"
+  printf '%s\n' "$checkout"
+}
+
+# A stage-move failure aborts before the symlink is touched.
+_gm_stage_home=$(_tmpdir)
+_gm_stage_checkout=$(_gm_new_checkout "$_gm_stage_home")
+printf '0\n' >"$_gm_stage_home/mv-count"
+export MOCK_MV_COUNT_FILE="$_gm_stage_home/mv-count" MOCK_MV_FAIL_AT=1 \
+  MOCK_MV_REAL="$_gm_real_mv"
+_gm_rc=0
+_gm_out=$(_run_gstack_migrate_with_path "$_gm_stage_home" "$_gm_stage_checkout" \
+  "$_gm_fail_bin:$PATH") || _gm_rc=$?
+unset MOCK_MV_COUNT_FILE MOCK_MV_FAIL_AT MOCK_MV_REAL
+_assert_exit "gstack migrate: stage failure returns nonzero" 1 "$_gm_rc"
+_assert_contains "gstack migrate: stage failure names the entry" \
+  "failed to stage state entry" "$_gm_out"
+_assert_contains "gstack migrate: stage failure discloses the staging dir" \
+  ".gstack.state-migration." "$_gm_out"
+if [[ -L "$_gm_stage_home/.gstack" ]]; then
+  _pass "gstack migrate: stage failure keeps the symlink"
+else
+  _fail "gstack migrate: stage failure keeps the symlink"
+fi
+_assert_eq "gstack migrate: stage failure keeps the symlink target" \
+  "$_gm_stage_checkout" "$(readlink "$_gm_stage_home/.gstack")"
+_assert_file_exists "gstack migrate: stage failure leaves entries in checkout" \
+  "$_gm_stage_checkout/config.yaml"
+_gm_staging=$(ls -d "$_gm_stage_home"/.gstack.state-migration.* 2>/dev/null) || _gm_staging=""
+if [[ -n "$_gm_staging" && -d "$_gm_staging" ]]; then
+  _pass "gstack migrate: stage failure preserves the disclosed staging dir"
+else
+  _fail "gstack migrate: stage failure preserves the disclosed staging dir"
+fi
+
+# A failure on the second stage move still aborts before the symlink removal:
+# exactly one entry staged, one still in the checkout.
+_gm_part_home=$(_tmpdir)
+_gm_part_checkout=$(_gm_new_checkout "$_gm_part_home")
+printf '0\n' >"$_gm_part_home/mv-count"
+export MOCK_MV_COUNT_FILE="$_gm_part_home/mv-count" MOCK_MV_FAIL_AT=2 \
+  MOCK_MV_REAL="$_gm_real_mv"
+_gm_rc=0
+_gm_out=$(_run_gstack_migrate_with_path "$_gm_part_home" "$_gm_part_checkout" \
+  "$_gm_fail_bin:$PATH") || _gm_rc=$?
+unset MOCK_MV_COUNT_FILE MOCK_MV_FAIL_AT MOCK_MV_REAL
+_assert_exit "gstack migrate: partial stage failure returns nonzero" 1 "$_gm_rc"
+if [[ -L "$_gm_part_home/.gstack" ]]; then
+  _pass "gstack migrate: partial stage failure keeps the symlink"
+else
+  _fail "gstack migrate: partial stage failure keeps the symlink"
+fi
+_gm_staging=$(ls -d "$_gm_part_home"/.gstack.state-migration.* 2>/dev/null) || _gm_staging=""
+_gm_staged_now=0
+for _gm_e in "$_gm_staging"/*; do
+  [ -e "$_gm_e" ] && _gm_staged_now=$((_gm_staged_now + 1))
+done
+_assert_eq "gstack migrate: partial failure stages exactly one entry" "1" "$_gm_staged_now"
+_gm_kept_now=0
+[ -e "$_gm_part_checkout/sessions" ] && _gm_kept_now=$((_gm_kept_now + 1))
+[ -e "$_gm_part_checkout/config.yaml" ] && _gm_kept_now=$((_gm_kept_now + 1))
+_assert_eq "gstack migrate: partial failure keeps exactly one entry" "1" "$_gm_kept_now"
+_assert_file_exists "gstack migrate: partial failure never drains unknown entries" \
+  "$_gm_part_checkout/SKILL.md"
+
+# A failing symlink removal aborts loudly with the symlink still in place.
+_gm_rm_bin=$(_mock_bin)
+cat >"$_gm_rm_bin/rm" <<'SH'
+#!/usr/bin/env bash
+echo "mock rm: refusing $*" >&2
+exit 1
+SH
+chmod +x "$_gm_rm_bin/rm"
+_gm_rm_home=$(_tmpdir)
+_gm_rm_checkout=$(_gm_new_checkout "$_gm_rm_home")
+_gm_rc=0
+_gm_out=$(_run_gstack_migrate_with_path "$_gm_rm_home" "$_gm_rm_checkout" \
+  "$_gm_rm_bin:$PATH") || _gm_rc=$?
+_assert_exit "gstack migrate: symlink-removal failure returns nonzero" 1 "$_gm_rc"
+_assert_contains "gstack migrate: symlink-removal failure is loud" \
+  "failed to remove gstack symlink" "$_gm_out"
+_assert_contains "gstack migrate: symlink-removal failure discloses staging" \
+  ".gstack.state-migration." "$_gm_out"
+if [[ -L "$_gm_rm_home/.gstack" ]]; then
+  _pass "gstack migrate: symlink-removal failure keeps the symlink"
+else
+  _fail "gstack migrate: symlink-removal failure keeps the symlink"
+fi
+
+# A failing state-dir creation aborts loudly past the symlink removal.
+_gm_mkdir_bin=$(_mock_bin)
+cat >"$_gm_mkdir_bin/mkdir" <<'SH'
+#!/usr/bin/env bash
+echo "mock mkdir: refusing $*" >&2
+exit 1
+SH
+chmod +x "$_gm_mkdir_bin/mkdir"
+_gm_mkdir_home=$(_tmpdir)
+_gm_mkdir_checkout=$(_gm_new_checkout "$_gm_mkdir_home")
+_gm_rc=0
+_gm_out=$(_run_gstack_migrate_with_path "$_gm_mkdir_home" "$_gm_mkdir_checkout" \
+  "$_gm_mkdir_bin:$PATH") || _gm_rc=$?
+_assert_exit "gstack migrate: mkdir failure returns nonzero" 1 "$_gm_rc"
+_assert_contains "gstack migrate: mkdir failure is loud" \
+  "failed to create gstack state directory" "$_gm_out"
+_assert_contains "gstack migrate: mkdir failure discloses staging" \
+  ".gstack.state-migration." "$_gm_out"
+_assert_path_missing "gstack migrate: mkdir failure leaves no state dir" \
+  "$_gm_mkdir_home/.gstack"
+
+# A restore-move failure aborts loudly past the point of no return: the state
+# dir is already real, and the remaining entry stays in the disclosed staging dir.
+_gm_rest_home=$(_tmpdir)
+_gm_rest_checkout=$(_gm_new_checkout "$_gm_rest_home")
+printf '0\n' >"$_gm_rest_home/mv-count"
+export MOCK_MV_COUNT_FILE="$_gm_rest_home/mv-count" MOCK_MV_FAIL_AT=4 \
+  MOCK_MV_REAL="$_gm_real_mv"
+_gm_rc=0
+_gm_out=$(_run_gstack_migrate_with_path "$_gm_rest_home" "$_gm_rest_checkout" \
+  "$_gm_fail_bin:$PATH") || _gm_rc=$?
+unset MOCK_MV_COUNT_FILE MOCK_MV_FAIL_AT MOCK_MV_REAL
+_assert_exit "gstack migrate: restore failure returns nonzero" 1 "$_gm_rc"
+_assert_contains "gstack migrate: restore failure names the entry" \
+  "failed to restore state entry" "$_gm_out"
+_assert_contains "gstack migrate: restore failure discloses the staging dir" \
+  ".gstack.state-migration." "$_gm_out"
+if [[ -d "$_gm_rest_home/.gstack" && ! -L "$_gm_rest_home/.gstack" ]]; then
+  _pass "gstack migrate: past the point of no return the state dir is real"
+else
+  _fail "gstack migrate: past the point of no return the state dir is real"
+fi
+_gm_staging=$(ls -d "$_gm_rest_home"/.gstack.state-migration.* 2>/dev/null) || _gm_staging=""
+_gm_staged_now=0
+for _gm_e in "$_gm_staging"/*; do
+  [ -e "$_gm_e" ] && _gm_staged_now=$((_gm_staged_now + 1))
+done
+_assert_eq "gstack migrate: restore failure keeps one entry staged" "1" "$_gm_staged_now"
+
+# The interrupt report names the staging dir exactly once, then clears.
+_gm_report_out=$(HOME="$_gm_rest_home" bash -c '
+    . "$1/paths.sh"
+    . "$1/migration.sh"
+    _GSTACK_REGISTER_MIGRATION_STAGING="/tmp/staging-probe-$$"
+    _gstack_register_report_migration_staging
+    printf "cleared:%s\n" "${_GSTACK_REGISTER_MIGRATION_STAGING:-EMPTY}"
+    _gstack_register_report_migration_staging
+  ' _ "$_gstack_mig_lib" 2>&1)
+_assert_contains "gstack migrate: interrupt report names the staging dir" \
+  "staging-probe-" "$_gm_report_out"
+_assert_contains "gstack migrate: interrupt report clears after firing" \
+  "cleared:EMPTY" "$_gm_report_out"
+_gm_report_count=$(printf '%s\n' "$_gm_report_out" | grep -c 'interrupted' || true)
+_assert_eq "gstack migrate: interrupt report fires once" "1" "$_gm_report_count"
+
+# A TERM arriving mid-migration discloses the staging dir through the real
+# temp-trap path and still exits on the signal.
+_gm_term_home=$(_tmpdir)
+_gm_term_checkout=$(_gm_new_checkout "$_gm_term_home")
+_gm_term_bin="$_gm_term_home/bin"
+mkdir -p "$_gm_term_bin"
+cat >"$_gm_term_bin/mv" <<SH
+#!/usr/bin/env bash
+sleep 2
+exec "$_gm_real_mv" "\$@"
+SH
+chmod +x "$_gm_term_bin/mv"
+cat >"$_gm_term_home/driver.sh" <<EOF
+#!/usr/bin/env bash
+. "$_gstack_mig_lib/temp.sh"
+. "$_gstack_mig_lib/paths.sh"
+. "$_gstack_mig_lib/migration.sh"
+_gstack_register_install_temp_traps
+_gstack_register_migrate_state_dir "$_gm_term_checkout"
+EOF
+HOME="$_gm_term_home" PATH="$_gm_term_bin:$PATH" "$_gm_bash" "$_gm_term_home/driver.sh" \
+  >"$_gm_term_home/out.log" 2>"$_gm_term_home/err.log" &
+_gm_term_pid=$!
+_gm_term_staging=""
+for ((i = 0; i < 100; i++)); do
+  _gm_term_staging=$(ls -d "$_gm_term_home"/.gstack.state-migration.* 2>/dev/null) || true
+  [[ -n "$_gm_term_staging" ]] && break
+  sleep 0.1
+done
+if [[ -z "$_gm_term_staging" ]]; then
+  _fail "gstack migrate: TERM test reached an in-flight migration"
+  kill -KILL "$_gm_term_pid" 2>/dev/null || true
+  wait "$_gm_term_pid" 2>/dev/null || true
+else
+  _pass "gstack migrate: TERM test reached an in-flight migration"
+  kill -TERM "$_gm_term_pid"
+  _gm_term_rc=0
+  wait "$_gm_term_pid" || _gm_term_rc=$?
+  _assert_exit "gstack migrate: interrupted migration exits on the signal" 143 "$_gm_term_rc"
+  _assert_contains "gstack migrate: interrupted migration discloses the staging dir" \
+    "$_gm_term_staging" "$(cat "$_gm_term_home/err.log")"
+fi
+
 # ---------------------------------------------------------------------------
 # Grok allowlist and rewrite: missing file keeps the full set; a named list
 # is fail-closed; shrinking prunes managed dests; unmanaged collisions stay.

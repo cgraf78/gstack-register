@@ -27,6 +27,11 @@ _gstack_register_remove_temp() {
 
 _gstack_register_cleanup_temps() {
   local path
+  # An interrupted state migration reports its staging directory through the
+  # same traps; migration.sh may not be sourced in minimal consumers.
+  if declare -F _gstack_register_report_migration_staging >/dev/null 2>&1; then
+    _gstack_register_report_migration_staging
+  fi
   for path in "${_GSTACK_REGISTER_TEMP_PATHS[@]+"${_GSTACK_REGISTER_TEMP_PATHS[@]}"}"; do
     [[ -n "$path" ]] || continue
     rm -rf -- "$path" 2>/dev/null || true
@@ -36,6 +41,14 @@ _gstack_register_cleanup_temps() {
 
 _gstack_register_forward_signal() {
   local signal="$1"
+
+  # Report an in-flight migration before temps disappear. The notice is
+  # report-once, so an EXIT handler on the normal-exit path stays silent
+  # afterwards (on the fatal-signal path below, the re-raised signal kills
+  # the process before EXIT traps run, so there is no second report).
+  if declare -F _gstack_register_report_migration_staging >/dev/null 2>&1; then
+    _gstack_register_report_migration_staging
+  fi
 
   # The launcher is a dedicated process, so restoring the default action and
   # re-sending the signal preserves the conventional shell exit status while
