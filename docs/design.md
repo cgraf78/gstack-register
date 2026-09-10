@@ -50,10 +50,13 @@ that body tracks. The upstream `guard/SKILL.md`, for example, would
 materialize as:
 
 ```text
-agent link  ~/.claude/skills/gstack-guard -> <data>/gstack-register/skills/gstack-guard
-generated   <data>/gstack-register/skills/gstack-guard/SKILL.md
-upstream    <checkout>/guard/SKILL.md
+## gstack-guard
+- claude: ~/.claude/skills/gstack-guard -> <data>/gstack-register/skills/gstack-guard
+- generated: <data>/gstack-register/skills/gstack-guard/SKILL.md (gstack-register-skill-v1)
+- upstream: <checkout>/guard/SKILL.md
 ```
+
+(One `- <agent>:` row exists per destination; only the `claude` row is shown.)
 
 The generated body carries `gstack-register-source` and
 `gstack-register-generator` markers repeating the `upstream` and `generated`
