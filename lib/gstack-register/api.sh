@@ -33,6 +33,10 @@ gstack_register_sync() {
 
   [[ -d "$gstack_dir" ]] || return 0
   _gstack_register_validate_runtime_paths || return 1
+  # Fail closed on an unusable override before any agent handling: without
+  # this, sync reads the override as "opencode absent" and uninstalls.
+  # Uninstall is intentionally unchecked — it never consults the override.
+  _gstack_register_check_opencode_override || return 1
   stamp=$(gstack_register_migration_stamp) || return 1
   [[ -f "$gstack_dir/SKILL.md" ]] || {
     _gstack_register_warn \

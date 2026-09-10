@@ -227,6 +227,39 @@ _gstack_register_has_agent() {
   esac
 }
 
+# A set-but-unusable GSTACK_REGISTER_OPENCODE_COMMAND must never read as
+# "opencode absent": sync would then dispatch the uninstall path and remove
+# working registrations. Validate up front and fail closed instead.
+_gstack_register_check_opencode_override() {
+  local override="${GSTACK_REGISTER_OPENCODE_COMMAND:-}"
+  local resolved=""
+  [[ -z "$override" ]] && return 0
+  case "$override" in
+    */*)
+      # `-f` as well as `-x`: directories are `-x` but `command -v` rejects
+      # them, so without it a directory override would pass here yet still
+      # read absent and uninstall.
+      if [[ -f "$override" && -x "$override" ]]; then
+        return 0
+      fi
+      _gstack_register_warn \
+        "gstack-register: invalid GSTACK_REGISTER_OPENCODE_COMMAND (not executable): $override; refusing to update opencode registrations"
+      return 1
+      ;;
+  esac
+  resolved=$(command -v "$override" 2>/dev/null) || resolved=""
+  case "$resolved" in
+    */*) [[ -x "$resolved" ]] || resolved="" ;;
+    "") resolved="" ;;
+  esac
+  if [[ -n "$resolved" ]]; then
+    return 0
+  fi
+  _gstack_register_warn \
+    "gstack-register: invalid GSTACK_REGISTER_OPENCODE_COMMAND (not found): $override; refusing to update opencode registrations"
+  return 1
+}
+
 _gstack_register_agent_state() {
   if _gstack_register_has_agent "$1"; then
     printf '0\n'
