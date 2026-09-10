@@ -268,6 +268,11 @@ _gstack_register_unregister_generated_tree() {
       "$generated_dir/GEMINI.md" 2>/dev/null; then
     rm -f "$generated_dir/GEMINI.md" || rc=1
   fi
+  if [[ -f "$generated_dir/SKILLS.md" ]] &&
+    grep -Eq '^<!-- gstack-register-generator: gstack-register-skills-index-' \
+      "$generated_dir/SKILLS.md" 2>/dev/null; then
+    rm -f "$generated_dir/SKILLS.md" || rc=1
+  fi
   rm -f \
     "$(_gstack_register_managed_marker "$generated_dir")" \
     "$(_gstack_register_legacy_managed_marker "$generated_dir")" || rc=1

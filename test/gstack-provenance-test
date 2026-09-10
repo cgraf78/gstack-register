@@ -1,0 +1,319 @@
+#!/usr/bin/env bash
+# Characterize the generated skill provenance index, guard-shaped runtime path
+# rewrites, and checkout relocation repair.
+
+# shellcheck disable=SC1090,SC1091,SC2034
+
+set -o pipefail
+export NO_COLOR=1
+
+repo_root=$(cd "${BASH_SOURCE[0]%/*}/.." && pwd -P) || exit 1
+# shellcheck source=lib/test.sh
+. "$repo_root/test/lib/test.sh"
+
+REAL_HOME=$repo_root
+
+_prov_home=$(_tmpdir)
+_prov_repo="$_prov_home/.local/share/garrytan/gstack"
+_prov_gen="$_prov_home/.local/share/gstack-register/skills"
+_prov_opencode_gen="$_prov_home/.local/share/gstack-register/opencode-skills"
+mkdir -p "$_prov_repo/qa" "$_prov_repo/guard" "$_prov_repo/review" \
+  "$_prov_repo/gstack"
+cat >"$_prov_repo/SKILL.md" <<'MD'
+---
+name: gstack
+---
+MD
+cat >"$_prov_repo/qa/SKILL.md" <<'MD'
+---
+name: qa
+description: QA workflow. (gstack)
+---
+Run ~/.claude/skills/gstack/bin/gstack-config for QA.
+MD
+cat >"$_prov_repo/review/SKILL.md" <<'MD'
+---
+name: review
+---
+MD
+cat >"$_prov_repo/gstack/SKILL.md" <<'MD'
+---
+name: gstack
+---
+MD
+# Guard-shaped skill: hook commands and shell lines reference sibling skill
+# directories through the historical global Claude root, in the same absolute
+# forms the upstream guard skill uses. Every absolute form must become a
+# checkout reference, while project-relative vendored checks stay relative.
+cat >"$_prov_repo/guard/SKILL.md" <<'MD'
+---
+name: guard
+description: "Full safety mode. (gstack)"
+hooks:
+  PreToolUse:
+    - matcher: "Bash"
+      hooks:
+        - type: command
+          command: "bash $HOME/.claude/skills/gstack/careful/bin/check-careful.sh"
+---
+
+eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
+Run ${HOME}/.claude/skills/gstack/freeze/bin/check-freeze.sh for freezes.
+Keep .claude/skills/gstack vendored checks local.
+MD
+
+_prov_muse_log=$(_tmpdir)/muse.log
+: >"$_prov_muse_log"
+_prov_agent_bin=$(_mock_bin)
+for _prov_stub in codex gemini grok opencode; do
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$_prov_agent_bin/$_prov_stub"
+done
+cat >"$_prov_agent_bin/muse" <<'SH'
+#!/usr/bin/env bash
+# Mock Muse CLI: user-scope skills live under $HOME/.config/muse/skills.
+skills_dir="$HOME/.config/muse/skills"
+printf 'muse %s\n' "$*" >>"$GSTACK_MUSE_LOG"
+[ "${1:-}" = "skills" ] || exit 0
+case "${2:-}" in
+  list)
+    printf 'NAME\tSCOPE\tDESCRIPTION\tPATH\n'
+    for skill_path in "$skills_dir"/gstack-*/; do
+      [ -f "$skill_path/SKILL.md" ] || continue
+      printf '%s\tuser\tmock\t%s/SKILL.md\n' \
+        "$(basename "$skill_path")" "${skill_path%/}"
+    done
+    ;;
+  install)
+    src=''
+    for arg in "$@"; do
+      case "$arg" in
+        --force | skills | install) continue ;;
+        *) src=$arg ;;
+      esac
+    done
+    [ -n "$src" ] && [ -d "$src" ] || exit 1
+    name=$(basename "$src")
+    mkdir -p "$skills_dir/$name"
+    cp -r "$src/." "$skills_dir/$name/"
+    ;;
+  uninstall)
+    id=${3:-}
+    [ -n "$id" ] || exit 1
+    rm -rf "$skills_dir/$id"
+    ;;
+esac
+SH
+chmod +x "$_prov_agent_bin/codex" "$_prov_agent_bin/gemini" \
+  "$_prov_agent_bin/grok" "$_prov_agent_bin/muse" "$_prov_agent_bin/opencode"
+_saved_home=$HOME
+_saved_path=$PATH
+HOME=$_prov_home
+PATH="$_prov_agent_bin:$PATH"
+export HOME PATH
+export GSTACK_MUSE_LOG=$_prov_muse_log
+
+# shellcheck source=../lib/gstack-register/api.sh
+. "$REAL_HOME/lib/gstack-register/api.sh"
+
+if gstack_register_sync; then
+  _pass "provenance: sync registers skills"
+else
+  _fail "provenance: sync registers skills"
+fi
+
+# Assert the generated index against the provider's own source scan, not a
+# copy of it: reload the inventory and derive every expected row from it.
+_prov_assert_index_matches_scan() {
+  local repo="$1" home="$2" gen="$3" opencode_gen="$4" index="$3/SKILLS.md"
+  local i skill_dir name link_name
+  _gstack_register_reset_source_cache
+  _gstack_register_load_source_skills "$repo" 2>/dev/null
+  for i in "${!_GSTACK_REGISTER_SOURCE_SKILL_DIRS[@]}"; do
+    skill_dir="${_GSTACK_REGISTER_SOURCE_SKILL_DIRS[$i]}"
+    name="${_GSTACK_REGISTER_SOURCE_SKILL_NAMES[$i]}"
+    link_name=$(_gstack_register_codex_skill_name "$name")
+    _gstack_register_is_umbrella_link "$link_name" && continue
+    _assert_contains "provenance: index sections $link_name" \
+      "## $link_name" "$(cat "$index")"
+    _assert_contains "provenance: index tracks $link_name upstream" \
+      "- upstream: $skill_dir/SKILL.md" "$(cat "$index")"
+    _assert_contains "provenance: index tracks $link_name generator" \
+      "- generated: $gen/$link_name/SKILL.md (gstack-register-skill-v1)" \
+      "$(cat "$index")"
+    _assert_contains "provenance: generated $link_name body carries indexed source" \
+      "<!-- gstack-register-source: $skill_dir/SKILL.md -->" \
+      "$(cat "$gen/$link_name/SKILL.md")"
+    _assert_contains "provenance: generated $link_name body carries indexed generator" \
+      "<!-- gstack-register-generator: gstack-register-skill-v1 -->" \
+      "$(cat "$gen/$link_name/SKILL.md")"
+    _assert_eq "provenance: Claude link matches $link_name index row" \
+      "$gen/$link_name" "$(readlink "$home/.claude/skills/$link_name")"
+    _assert_eq "provenance: Codex link matches $link_name index row" \
+      "$gen/$link_name" "$(readlink "$home/.codex/skills/$link_name")"
+    _assert_eq "provenance: Gemini link matches $link_name index row" \
+      "$gen/$link_name" \
+      "$(readlink "$home/.gemini/extensions/gstack/skills/$link_name")"
+    _assert_eq "provenance: OpenCode link matches $link_name index row" \
+      "$opencode_gen/$link_name" \
+      "$(readlink "$home/.config/opencode/skills/$link_name")"
+    _assert_file_exists "provenance: Grok dest exists for $link_name" \
+      "$home/.grok/skills/$link_name/SKILL.md"
+    _assert_file_exists "provenance: Muse copy exists for $link_name" \
+      "$home/.config/muse/skills/$link_name/SKILL.md"
+  done
+}
+
+_prov_assert_index_matches_scan "$_prov_repo" "$_prov_home" "$_prov_gen" \
+  "$_prov_opencode_gen"
+
+_prov_index="$_prov_gen/SKILLS.md"
+_assert_contains "provenance: index carries its generator marker" \
+  "<!-- gstack-register-generator: gstack-register-skills-index-v1 -->" \
+  "$(cat "$_prov_index")"
+_assert_contains "provenance: index carries its source marker" \
+  "<!-- gstack-register-source: $_prov_repo/SKILL.md -->" \
+  "$(cat "$_prov_index")"
+_assert_not_contains "provenance: index omits the umbrella link" \
+  "## gstack-gstack" "$(cat "$_prov_index")"
+_assert_file_missing "provenance: umbrella skill is never generated" \
+  "$_prov_gen/gstack-gstack/SKILL.md"
+_assert_path_missing "provenance: umbrella skill is never linked" \
+  "$_prov_home/.claude/skills/gstack-gstack"
+_prov_headers=$(grep '^## gstack-' "$_prov_index")
+_assert_eq "provenance: index sections sort by link name" \
+  "$(printf '%s\n' "$_prov_headers" | LC_ALL=C sort)" "$_prov_headers"
+_assert_contains "provenance: index explains re-verification" \
+  "## Re-verifying a misbehaving skill" "$(cat "$_prov_index")"
+
+_prov_guard_gen="$_prov_gen/gstack-guard/SKILL.md"
+_assert_contains "provenance: guard hook command becomes a checkout reference" \
+  "command: \"bash $_prov_repo/careful/bin/check-careful.sh\"" \
+  "$(cat "$_prov_guard_gen")"
+_assert_contains "provenance: guard tilde runtime path becomes a checkout reference" \
+  "eval \"\$($_prov_repo/bin/gstack-paths)\"" \
+  "$(cat "$_prov_guard_gen")"
+_assert_contains "provenance: guard braced HOME path becomes a checkout reference" \
+  "Run $_prov_repo/freeze/bin/check-freeze.sh for freezes." \
+  "$(cat "$_prov_guard_gen")"
+_assert_contains "provenance: guard keeps project-relative vendored checks" \
+  "Keep .claude/skills/gstack vendored checks local." \
+  "$(cat "$_prov_guard_gen")"
+# shellcheck disable=SC2016  # This assertion checks literal upstream prose.
+_assert_contains "provenance: guard upstream keeps historical paths" '$HOME/.claude/skills/gstack/careful/bin/check-careful.sh' "$(cat "$_prov_repo/guard/SKILL.md")"
+
+# No absolute skill-tree reference may survive in any generated SKILL.md body:
+# shared, OpenCode, Grok, or Muse-installed copies alike. Bare project-relative
+# `.claude/skills/gstack` checks are deliberately preserved, so the sweep only
+# covers the absolute `$HOME`, `${HOME}`, and `~/` forms.
+_prov_sweep_absolute_skill_paths() {
+  # shellcheck disable=SC2016,SC2088  # Sweep patterns quote literal upstream prose.
+  grep -rF -e '$HOME/.claude/skills' -e '${HOME}/.claude/skills' -e '~/.claude/skills/gstack' --include=SKILL.md "$_prov_gen" "$_prov_opencode_gen" "$_prov_home/.grok/skills" "$_prov_home/.config/muse/skills" 2>/dev/null || true
+}
+_assert_eq "provenance: no absolute skill-tree paths survive generation" \
+  "" "$(_prov_sweep_absolute_skill_paths)"
+
+# --- checkout relocation --------------------------------------------------
+# Renaming or moving the checkout must repair every baked absolute reference:
+# generated bodies, markers, and the index. Skill entries fingerprint
+# checkout-relative paths, so the checkout root itself is a fingerprint input;
+# without it the warm cache would wrongly report a moved checkout as current.
+_prov_old_repo="$_prov_repo"
+_prov_repo="$_prov_home/relocated-checkout/garrytan/gstack"
+mkdir -p "$(dirname "$_prov_repo")"
+mv "$_prov_old_repo" "$_prov_repo"
+export GSTACK_REGISTER_SOURCE_DIR="$_prov_repo"
+if gstack_register_sync; then
+  _pass "provenance: sync repairs a relocated checkout"
+else
+  _fail "provenance: sync repairs a relocated checkout"
+fi
+_prov_assert_index_matches_scan "$_prov_repo" "$_prov_home" "$_prov_gen" \
+  "$_prov_opencode_gen"
+_assert_contains "provenance: relocated guard hook points at the new checkout" \
+  "command: \"bash $_prov_repo/careful/bin/check-careful.sh\"" \
+  "$(cat "$_prov_gen/gstack-guard/SKILL.md")"
+_assert_contains "provenance: relocated index tracks the new upstream" \
+  "<!-- gstack-register-source: $_prov_repo/SKILL.md -->" \
+  "$(cat "$_prov_gen/SKILLS.md")"
+_assert_eq "provenance: no stale checkout paths survive relocation" "" \
+  "$(grep -rF "$_prov_old_repo" "$_prov_gen" 2>/dev/null || true)"
+_assert_file_exists "provenance: relocated Claude link still resolves" \
+  "$_prov_home/.claude/skills/gstack-qa/SKILL.md"
+_prov_resync_output=$(gstack_register_sync 2>&1)
+_assert_contains "provenance: post-move sync settles to the fast path" \
+  "gstack skill registration current" "$_prov_resync_output"
+
+# --- stale skill removal --------------------------------------------------
+rm -rf "$_prov_repo/review"
+if gstack_register_sync; then
+  _pass "provenance: sync prunes a removed source skill"
+else
+  _fail "provenance: sync prunes a removed source skill"
+fi
+_assert_not_contains "provenance: index drops a removed source skill" \
+  "## gstack-review" "$(cat "$_prov_gen/SKILLS.md")"
+_assert_path_missing "provenance: removed skill leaves no generated dir" \
+  "$_prov_gen/gstack-review"
+
+# --- index repair ---------------------------------------------------------
+rm -f "$_prov_gen/SKILLS.md"
+if gstack_register_sync; then
+  _pass "provenance: sync repairs a deleted index"
+else
+  _fail "provenance: sync repairs a deleted index"
+fi
+_assert_file_exists "provenance: sync regenerates the deleted index" \
+  "$_prov_gen/SKILLS.md"
+_assert_contains "provenance: regenerated index still sections skills" \
+  "## gstack-qa" "$(cat "$_prov_gen/SKILLS.md")"
+
+# --- uninstall ------------------------------------------------------------
+if gstack_register_uninstall; then
+  _pass "provenance: uninstall succeeds"
+else
+  _fail "provenance: uninstall succeeds"
+fi
+_assert_file_missing "provenance: uninstall removes the skills index" \
+  "$_prov_gen/SKILLS.md"
+_assert_path_missing "provenance: uninstall removes the generated tree" \
+  "$_prov_gen"
+
+# --- uninstall preserves a foreign index ------------------------------------
+# Ownership before deletion: an index without the provider generator marker is
+# not ours to remove, even inside the provider-owned generated tree.
+_prov_foreign_home=$(_tmpdir)
+_prov_foreign_repo="$_prov_foreign_home/.local/share/garrytan/gstack"
+_prov_foreign_gen="$_prov_foreign_home/.local/share/gstack-register/skills"
+mkdir -p "$_prov_foreign_repo/qa"
+cat >"$_prov_foreign_repo/SKILL.md" <<'MD'
+---
+name: gstack
+---
+MD
+cat >"$_prov_foreign_repo/qa/SKILL.md" <<'MD'
+---
+name: qa
+---
+MD
+HOME=$_prov_foreign_home
+export HOME
+unset GSTACK_REGISTER_SOURCE_DIR
+if gstack_register_sync; then
+  _pass "provenance: foreign-home sync registers skills"
+else
+  _fail "provenance: foreign-home sync registers skills"
+fi
+printf 'user-owned index\n' >"$_prov_foreign_gen/SKILLS.md"
+if gstack_register_uninstall; then
+  _pass "provenance: foreign-home uninstall succeeds"
+else
+  _fail "provenance: foreign-home uninstall succeeds"
+fi
+_assert_contains "provenance: uninstall preserves a foreign index" \
+  "user-owned index" "$(cat "$_prov_foreign_gen/SKILLS.md")"
+
+HOME=$_saved_home
+PATH=$_saved_path
+export HOME PATH
+
+_test_summary

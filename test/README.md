@@ -1,6 +1,6 @@
 # Tests
 
-`test/run` executes five standalone suites:
+`test/run` executes six standalone suites:
 
 - `cli-test` covers the public command, XDG roots, absolute-path validation,
   legacy takeover ordering, source-absent uninstall, and signal cleanup;
@@ -11,7 +11,11 @@
   removal;
 - `gstack-agents-test` covers Claude, Codex, Gemini, Grok, generated content,
   Grok allowlist and rewrite, cache fast paths and races, stale cleanup,
-  uninstall, and historical state migration; and
+  uninstall, and historical state migration;
+- `gstack-provenance-test` covers the generated `SKILLS.md` provenance index
+  against the provider's own source scan, guard-shaped absolute runtime path
+  rewrites, checkout relocation repair, index pruning and repair, and index
+  uninstall; and
 - `install-test` covers the checkout-backed symlink, custom install roots,
   idempotence, and refusal to overwrite a user-owned command.
 

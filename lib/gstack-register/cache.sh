@@ -15,6 +15,11 @@ _gstack_register_source_fingerprint() {
     # losing Codex/Gemini/Grok/Muse/OpenCode should remove registrations for that
     # agent, while gaining one should create them on the next sync.
     printf 'version\t%s\n' "$_GSTACK_REGISTER_REGISTRATION_CACHE_VERSION"
+    # Generated bodies bake the checkout's absolute path into rewritten runtime
+    # references and source markers. The skill entries below are checkout
+    # relative, so without the root a renamed or relocated checkout produces
+    # identical fingerprints and a stale cache hit leaves dead absolute paths.
+    printf 'root\t%s\n' "$gstack_dir"
     # The exclude list and Grok allowlist are registration inputs even though
     # they live outside the checkout; hash them so a content edit invalidates
     # the cache even when the file mtime-based watch entry cannot (for example
@@ -176,6 +181,7 @@ _gstack_register_target_fingerprint() {
 
     _gstack_register_emit_target_entry "$generated_dir" "generated"
     _gstack_register_emit_target_entry "$generated_dir/GEMINI.md" "generated/GEMINI.md"
+    _gstack_register_emit_target_entry "$generated_dir/SKILLS.md" "generated/SKILLS.md"
     _gstack_register_emit_target_entry "$claude_dir/gstack" "claude/gstack"
     _gstack_register_emit_target_entry "$claude_dir/connect-chrome" "claude/connect-chrome"
     for i in "${!_GSTACK_REGISTER_SOURCE_SKILL_NAMES[@]}"; do
@@ -447,6 +453,7 @@ _gstack_register_emit_target_watch_entries() {
   _gstack_register_load_source_skills "$gstack_dir"
 
   _gstack_register_emit_watch_entry "$generated_dir/GEMINI.md"
+  _gstack_register_emit_watch_entry "$generated_dir/SKILLS.md"
   _gstack_register_emit_watch_entry "$claude_dir/gstack"
   _gstack_register_emit_watch_entry "$claude_dir/connect-chrome"
   for i in "${!_GSTACK_REGISTER_SOURCE_SKILL_NAMES[@]}"; do

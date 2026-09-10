@@ -11,6 +11,7 @@ for suite in \
   "$repo_root/test/gstack-register-test" \
   "$repo_root/test/gstack-opencode-test" \
   "$repo_root/test/gstack-agents-test" \
+  "$repo_root/test/gstack-provenance-test" \
   "$repo_root/test/install-test"; do
   printf '=== %s ===\n' "${suite##*/}"
   "$suite" || status=1
