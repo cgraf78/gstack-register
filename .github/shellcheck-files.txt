@@ -16,6 +16,7 @@ program	support/install-checkout.sh
 program	test/cli-test
 program	test/gstack-agents-test
 program	test/gstack-opencode-test
+program	test/gstack-provenance-test
 program	test/gstack-register-test
 program	test/install-test
 program	test/lib/test.sh

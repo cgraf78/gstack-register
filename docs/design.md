@@ -40,6 +40,39 @@ No transform runs gstack `setup` or Bun. Upstream changes that affect generated
 host contracts must be reviewed here and covered by a synthetic fixture rather
 than silently adding a build-time dependency.
 
+## Skill provenance
+
+Every sync writes `SKILLS.md` into the shared generated tree from the same
+source scan that drives generation, so the index cannot drift from the
+registrations it describes. Each section maps one agent-visible link name to
+its generated body (with the generator version) and the upstream `SKILL.md`
+that body tracks. The upstream `guard/SKILL.md`, for example, would
+materialize as:
+
+```text
+agent link  ~/.claude/skills/gstack-guard -> <data>/gstack-register/skills/gstack-guard
+generated   <data>/gstack-register/skills/gstack-guard/SKILL.md
+upstream    <checkout>/guard/SKILL.md
+```
+
+The generated body carries `gstack-register-source` and
+`gstack-register-generator` markers repeating the `upstream` and `generated`
+rows. Its historical `$HOME`/`~` Claude-root references to sibling
+directories (such as guard's hook commands into `careful/` and `freeze/`) are
+rewritten to checkout-absolute references, while project-relative
+`.claude/skills` checks keep their relative form. Because generated bodies
+bake in the absolute checkout path, the source fingerprint includes the
+checkout root itself: renaming or relocating the checkout invalidates the
+warm cache and the next sync regenerates every reference.
+
+To re-verify a misbehaving skill, resolve the agent-visible link with
+`readlink`, compare the generated body's markers against its index section,
+and run `gstack-register sync` to repair. The index header repeats these
+steps wherever the generated tree is inspected. Index generation, marker
+agreement, relocation repair, and uninstall cleanup are covered by
+`test/gstack-provenance-test`, which asserts the index against the
+provider's own source scan.
+
 ## XDG ownership
 
 Configuration, durable generated data, cache, and migration state have separate

@@ -170,6 +170,7 @@ _GSTACK_REGISTER_GENERATED_SKILL_VERSION='gstack-register-skill-v1'
 _GSTACK_REGISTER_GROK_SKILL_VERSION='gstack-register-grok-skill-v2'
 _GSTACK_REGISTER_OPENCODE_SKILL_VERSION='gstack-register-opencode-skill-v1'
 _GSTACK_REGISTER_GEMINI_CONTEXT_VERSION='gstack-register-gemini-context-v1'
+_GSTACK_REGISTER_SKILLS_INDEX_VERSION='gstack-register-skills-index-v1'
 # v2: Grok allowlist is a source input and Grok dests are rewritten copies.
 # A v1 watch inventory can still look current after that contract change.
 _GSTACK_REGISTER_REGISTRATION_CACHE_VERSION='gstack-register-registration-v2'
