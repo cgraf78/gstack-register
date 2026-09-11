@@ -385,7 +385,9 @@ _assert_eq "hoist golden: target fingerprint is stable" "$_fp_before" \
   "$(_gstack_register_target_fingerprint "$gstack_dir")"
 _assert_eq "hoist golden: source fingerprint is stable" "$_src_before" \
   "$(_gstack_register_source_fingerprint "$gstack_dir")"
-if cmp -s "$work/cache-golden" "$cache_file"; then
+# Portable compare: `cmp` lives in diffutils, which minimal images (Arch,
+# Fedora/RHEL) do not install; the lib helper falls back to `cksum`.
+if _gstack_register_files_equal "$work/cache-golden" "$cache_file"; then
   _pass "hoist golden: cache file bytes are stable across rewrite"
 else
   _fail "hoist golden: cache file bytes are stable across rewrite"
