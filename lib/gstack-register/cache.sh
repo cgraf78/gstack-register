@@ -49,17 +49,23 @@ _gstack_register_source_fingerprint() {
     # change. Without this, a runtime asset appearing under an already-listed
     # directory would leave the source fingerprint unchanged and a warm sync
     # could wrongly skip the target proof that notices the new link.
-    while IFS=$'\t' read -r source rel kind; do
-      [ -n "$source" ] || continue
-      if [ "$kind" = file ]; then
-        [ -f "$source" ] && state=present || state=missing
-      elif [ -e "$source" ] || [ -L "$source" ]; then
-        state=present
-      else
-        state=missing
-      fi
-      printf 'opencode-runtime\t%s\t%s\n' "$rel" "$state"
-    done < <(_gstack_register_each_opencode_runtime_source_candidate "$gstack_dir")
+    # Gated on agent presence: with no opencode runtime installed these lines
+    # would invalidate (and spuriously re-register) on every runtime-dir
+    # change that the target proof ignores. Agent appearance already
+    # invalidates via the `agent` lines below, so no transition is missed.
+    if _gstack_register_has_agent opencode; then
+      while IFS=$'\t' read -r source rel kind; do
+        [ -n "$source" ] || continue
+        if [ "$kind" = file ]; then
+          [ -f "$source" ] && state=present || state=missing
+        elif [ -e "$source" ] || [ -L "$source" ]; then
+          state=present
+        else
+          state=missing
+        fi
+        printf 'opencode-runtime\t%s\t%s\n' "$rel" "$state"
+      done < <(_gstack_register_each_opencode_runtime_source_candidate "$gstack_dir")
+    fi
     for agent in "${_GSTACK_REGISTER_KNOWN_AGENTS[@]}"; do
       printf 'agent\t%s\t%s\n' "$agent" "$(
         _gstack_register_has_agent "$agent"

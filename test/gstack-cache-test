@@ -106,6 +106,46 @@ _assert_not_contains "cache lifecycle: unexpected managed target regenerates" \
 _assert_path_missing "cache lifecycle: unexpected managed target is removed" \
   "$claude_dir/stale-skill"
 
+# --- forged-marker repair deferral (known residual) ---------------------------
+# A hand-forged managed marker inside an already-existing unexpected dir,
+# concurrent with a source-only touch, is NOT repaired until an unrelated
+# target-side invalidation: the skip path re-arms the fence without
+# noticing it. Same class as the pre-existing warm-sync fast-path blind
+# spot. Pinned so the deferral window cannot widen silently.
+mkdir -p "$claude_dir/gstack-stale"
+printf '# stale\n' >"$claude_dir/gstack-stale/SKILL.md"
+_sync >/dev/null
+touch "$gstack_dir/alpha/SKILL.md"
+: >"$(_gstack_register_managed_marker "$claude_dir/gstack-stale")"
+forged_out=$(_sync)
+_assert_contains "cache lifecycle: forged marker defers past sync2" \
+  "gstack skill registration current" "$forged_out"
+if [[ -d "$claude_dir/gstack-stale" ]]; then
+  _pass "cache lifecycle: forged stray survives sync2"
+else
+  _fail "cache lifecycle: forged stray survives sync2"
+fi
+forged_out3=$(_sync)
+_assert_contains "cache lifecycle: forged marker defers past sync3" \
+  "gstack skill registration current" "$forged_out3"
+if [[ -d "$claude_dir/gstack-stale" ]]; then
+  _pass "cache lifecycle: forged stray survives sync3"
+else
+  _fail "cache lifecycle: forged stray survives sync3"
+fi
+# An unrelated target-side trip heals: deleting a published link forces
+# the full proof, which removes the forged stray too.
+if [[ -L "$claude_link" ]]; then
+  rm "$claude_link"
+  forged_heal_out=$(_sync)
+  _assert_not_contains "cache lifecycle: target trip heals the forged stray" \
+    "current" "$forged_heal_out"
+  _assert_path_missing "cache lifecycle: forged stray removed after heal" \
+    "$claude_dir/gstack-stale"
+else
+  _fail "cache lifecycle: fixture must publish a claude link to heal with"
+fi
+
 # --- agent availability changes regenerate ------------------------------------
 printf '#!/usr/bin/env bash\nexit 0\n' >"$mockbin/codex"
 chmod +x "$mockbin/codex"
@@ -139,20 +179,32 @@ else
   _fail "fingerprint: source fingerprint moves on content edits"
 fi
 
-# Opencode target entries are keyed by the runtime asset listing, so the
-# source fingerprint must notice a runtime asset appearing under an
-# already-listed directory. Without this, a warm sync could skip the target
-# proof that notices the new link.
+# Opencode target entries are keyed by the runtime asset listing, so a
+# managed source fingerprint must notice a runtime asset appearing under
+# an already-listed directory. Without this, a warm sync could skip the
+# target proof that notices the new link. Unmanaged (no opencode runtime
+# installed), the same arrival must NOT invalidate: the target proof
+# ignores it, and invalidating caused a spurious full re-registration.
 mkdir -p "$gstack_dir/design/dist"
 printf 'design\n' >"$gstack_dir/design/dist/design"
 _gstack_register_reset_source_cache
-source_runtime=$(_gstack_register_source_fingerprint "$gstack_dir")
-if [[ "$source_runtime" != "$source_edited" ]]; then
-  _pass "fingerprint: source fingerprint moves on runtime asset arrival"
-else
-  _fail "fingerprint: source fingerprint moves on runtime asset arrival"
-fi
+source_unmanaged=$(_gstack_register_source_fingerprint "$gstack_dir")
+_assert_eq "fingerprint: unmanaged source ignores runtime asset arrival" \
+  "$source_edited" "$source_unmanaged"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$mockbin/opencode"
+chmod +x "$mockbin/opencode"
+_gstack_register_reset_source_cache
+source_managed_present=$(_gstack_register_source_fingerprint "$gstack_dir")
 rm -rf "$gstack_dir/design"
+_gstack_register_reset_source_cache
+source_managed_absent=$(_gstack_register_source_fingerprint "$gstack_dir")
+if [[ "$source_managed_present" != "$source_managed_absent" ]]; then
+  _pass "fingerprint: managed source moves on runtime asset change"
+else
+  _fail "fingerprint: managed source moves on runtime asset change"
+fi
+rm "$mockbin/opencode"
+_gstack_register_reset_source_cache
 
 rm "$claude_link"
 target_broken=$(_gstack_register_target_fingerprint "$gstack_dir")
