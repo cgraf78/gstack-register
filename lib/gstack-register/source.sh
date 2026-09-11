@@ -8,17 +8,30 @@
 # cache fingerprints share one parse.
 
 _gstack_register_skill_name() {
-  local skill_dir="$1" name
-  name=$(
-    sed -n 's/^name:[[:space:]]*//p' "$skill_dir/SKILL.md" 2>/dev/null |
-      head -1 |
-      tr -d '[:space:]'
-  )
-  if [ -n "$name" ]; then
-    printf '%s\n' "$name"
-  else
-    basename "$skill_dir"
+  local skill_dir="$1" line rest base
+  # Builtins only: this runs once per skill per inventory load, and the old
+  # sed/head/tr/basename pipeline forked four processes per call. The loop
+  # matches it exactly: the first line starting with `name:`, leading
+  # whitespace stripped, then all remaining whitespace deleted; anything
+  # else (including an empty value) falls back to the directory name.
+  if [ -f "$skill_dir/SKILL.md" ] && [ -r "$skill_dir/SKILL.md" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+      case "$line" in
+        'name:'*)
+          rest=${line#name:}
+          rest=${rest#"${rest%%[![:space:]]*}"}
+          rest=${rest//[[:space:]]/}
+          if [ -n "$rest" ]; then
+            printf '%s\n' "$rest"
+            return 0
+          fi
+          break
+          ;;
+      esac
+    done <"$skill_dir/SKILL.md" 2>/dev/null
   fi
+  base=${skill_dir%/}
+  printf '%s\n' "${base##*/}"
 }
 
 # Strip comments and surrounding whitespace from one policy-file line. Exclude
@@ -113,7 +126,8 @@ _gstack_register_each_source_skill() {
   local gstack_dir="$1" skill_dir base
   for skill_dir in "$gstack_dir"/*/; do
     [ -f "$skill_dir/SKILL.md" ] || continue
-    base=$(basename "$skill_dir")
+    base=${skill_dir%/}
+    base=${base##*/}
     _gstack_register_skill_dir_is_skipped "$base" && continue
     printf '%s\n' "${skill_dir%/}"
   done

@@ -206,10 +206,16 @@ _gstack_register_write_opencode_skills() {
   return "$rc"
 }
 
-_gstack_register_each_opencode_runtime_asset() {
-  local gstack_dir="$1" generated_dir source rel file
-  generated_dir=$(_gstack_register_opencode_generated_skills_dir) || return 1
-
+# Every source-side opencode runtime asset candidate, existing or not, as
+# `source`-tab-`rel`-tab-`kind` lines. The target fingerprint's opencode
+# entries are keyed by which candidates exist, so the source fingerprint
+# records each candidate's existence from this same list: a runtime asset
+# appearing or disappearing must invalidate the source proof, or a warm sync
+# could skip the target recomputation that notices the new link. Kind is
+# `file` for regular-file assets and `any` for directory-or-link assets,
+# matching the existence predicates below.
+_gstack_register_each_opencode_runtime_source_candidate() {
+  local gstack_dir="$1" rel file
   for rel in \
     bin \
     browse/dist \
@@ -218,25 +224,36 @@ _gstack_register_each_opencode_runtime_asset() {
     review/specialists \
     qa/templates \
     qa/references; do
-    source="$gstack_dir/$rel"
-    [ -e "$source" ] || [ -L "$source" ] || continue
-    printf '%s\t%s\n' "$source" "$rel"
+    printf '%s\t%s\tany\n' "$gstack_dir/$rel" "$rel"
   done
+
+  for file in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
+    printf '%s\t%s\tfile\n' "$gstack_dir/review/$file" "review/$file"
+  done
+
+  for rel in plan-devex-review/dx-hall-of-fame.md ETHOS.md; do
+    printf '%s\t%s\tfile\n' "$gstack_dir/$rel" "$rel"
+  done
+}
+
+_gstack_register_each_opencode_runtime_asset() {
+  local gstack_dir="$1" generated_dir source rel kind
+  generated_dir=$(_gstack_register_opencode_generated_skills_dir) || return 1
+
+  while IFS=$'\t' read -r source rel kind; do
+    [ -n "$source" ] || continue
+    if [ "$kind" = file ]; then
+      [ -f "$source" ] || continue
+    else
+      [ -e "$source" ] || [ -L "$source" ] || continue
+    fi
+    printf '%s\t%s\n' "$source" "$rel"
+  done < <(_gstack_register_each_opencode_runtime_source_candidate "$gstack_dir")
 
   source="$generated_dir/gstack/SKILL.md"
   [ -f "$source" ] && printf '%s\t%s\n' "$source" "SKILL.md"
   source="$generated_dir/gstack-upgrade/SKILL.md"
   [ -f "$source" ] && printf '%s\t%s\n' "$source" "gstack-upgrade/SKILL.md"
-
-  for file in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
-    source="$gstack_dir/review/$file"
-    [ -f "$source" ] && printf '%s\t%s\n' "$source" "review/$file"
-  done
-
-  for rel in plan-devex-review/dx-hall-of-fame.md ETHOS.md; do
-    source="$gstack_dir/$rel"
-    [ -f "$source" ] && printf '%s\t%s\n' "$source" "$rel"
-  done
 }
 
 _gstack_register_link_opencode_runtime_asset() {

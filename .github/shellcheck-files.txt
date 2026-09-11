@@ -14,6 +14,7 @@ program	lib/gstack-register/temp.sh
 program	scripts/checkout-installer.conf
 program	support/install-checkout.sh
 program	test/cli-test
+program	test/gstack-cache-test
 program	test/gstack-agents-test
 program	test/gstack-opencode-test
 program	test/gstack-provenance-test

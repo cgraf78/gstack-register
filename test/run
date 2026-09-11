@@ -8,6 +8,7 @@ status=0
 
 for suite in \
   "$repo_root/test/cli-test" \
+  "$repo_root/test/gstack-cache-test" \
   "$repo_root/test/gstack-register-test" \
   "$repo_root/test/gstack-opencode-test" \
   "$repo_root/test/gstack-agents-test" \
