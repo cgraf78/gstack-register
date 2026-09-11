@@ -225,4 +225,118 @@ _sync >/dev/null
 unset -f _gstack_register_target_fingerprint
 eval "$_target_fp_def"
 
+# --- fingerprint input goldens --------------------------------------------------
+# The rewrites below must not move these byte-for-byte outputs: the
+# fingerprints hash them, so any drift changes cache keys and sync behavior.
+_skill_name_n=0
+_skill_name_case() {
+  local desc="$1" body="$2" expected="$3"
+  _skill_name_n=$((_skill_name_n + 1))
+  local dir="$work/skillname-$_skill_name_n"
+  mkdir -p "$dir"
+  if [[ "$body" != "<missing>" ]]; then
+    printf '%s' "$body" >"$dir/SKILL.md"
+  fi
+  if [[ "$expected" == "<dir>" ]]; then
+    expected="skillname-$_skill_name_n"
+  fi
+  _assert_eq "skill_name: $desc" "$expected" "$(_gstack_register_skill_name "$dir")"
+}
+_skill_name_case "plain name field" '---
+name: alpha
+---
+' "alpha"
+_skill_name_case "spaces around value" '---
+name:   spaced out  
+---
+' "spacedout"
+_skill_name_case "tabs around value" '---
+name:	tabbed	
+---
+' "tabbed"
+_skill_name_case "first name wins" '---
+name: first
+name: second
+---
+' "first"
+_skill_name_case "uppercase NAME falls back" '---
+NAME: upper
+---
+' "<dir>"
+_skill_name_case "indented name falls back" '---
+  name: indented
+---
+' "<dir>"
+_skill_name_case "missing name falls back to directory" '---
+description: no name here
+---
+' "<dir>"
+_skill_name_case "missing SKILL.md falls back to directory" "<missing>" "<dir>"
+_skill_name_case "empty name value falls back to directory" '---
+name:
+---
+' "<dir>"
+_skill_name_case "CRLF line endings" $'---\r\nname: crlf\r\n---\r\n' "crlf"
+_skill_name_case "no trailing newline" '---
+name: noeol' "noeol"
+_skill_name_case "colon in value" '---
+name: a:b
+---
+' "a:b"
+
+_assert_eq "codex name: prefixes bare names" \
+  "gstack-qa" "$(_gstack_register_codex_skill_name qa)"
+_assert_eq "codex name: keeps prefixed names" \
+  "gstack-qa" "$(_gstack_register_codex_skill_name gstack-qa)"
+_assert_eq "managed marker: appends the marker leaf" \
+  "/tmp/x/.gstack-register-managed" "$(_gstack_register_managed_marker /tmp/x)"
+
+_entry_dir=$(_tmpdir)
+mkdir -p "$_entry_dir/sub"
+printf 'body' >"$_entry_dir/file.txt"
+ln -s file.txt "$_entry_dir/link.txt"
+_assert_eq "target entry: symlink emits its destination" \
+  "target	lbl	link	$_entry_dir/link.txt	file.txt" \
+  "$(_gstack_register_emit_target_entry "$_entry_dir/link.txt" lbl)"
+_assert_eq "target entry: file emits existence" \
+  "target	lbl	file	$_entry_dir/file.txt" \
+  "$(_gstack_register_emit_target_entry "$_entry_dir/file.txt" lbl)"
+_assert_eq "target entry: dir emits existence" \
+  "target	lbl	dir	$_entry_dir/sub" \
+  "$(_gstack_register_emit_target_entry "$_entry_dir/sub" lbl)"
+_assert_eq "target entry: missing emits missing" \
+  "target	lbl	missing	$_entry_dir/absent" \
+  "$(_gstack_register_emit_target_entry "$_entry_dir/absent" lbl)"
+_GSTACK_REGISTER_TARGET_FRESHNESS_CACHE_FILE="$_entry_dir/file.txt"
+touch "$_entry_dir/newer.txt"
+_assert_eq "target entry: file newer than cache is flagged" \
+  "target	lbl	file-newer-than-cache	$_entry_dir/newer.txt" \
+  "$(_gstack_register_emit_target_entry "$_entry_dir/newer.txt" lbl)"
+_GSTACK_REGISTER_TARGET_FRESHNESS_CACHE_FILE=''
+
+_each_names=$(
+  _gstack_register_each_source_skill "$gstack_dir" | while IFS= read -r dir; do
+    printf '%s\n' "${dir##*/}"
+  done | LC_ALL=C sort | tr '\n' ' '
+)
+_assert_eq "source scan: emits stripped skill dirs" \
+  "alpha beta gamma " "$_each_names"
+
+# --- fingerprint/cache rewrite determinism ------------------------------------
+# The link-name hoist must not move these bytes: same tree, same cache file.
+_fp_before=$(_gstack_register_target_fingerprint "$gstack_dir")
+_src_before=$(_gstack_register_source_fingerprint "$gstack_dir")
+cp "$cache_file" "$work/cache-golden"
+rm -f "$cache_file"
+_sync >/dev/null
+_assert_eq "hoist golden: target fingerprint is stable" "$_fp_before" \
+  "$(_gstack_register_target_fingerprint "$gstack_dir")"
+_assert_eq "hoist golden: source fingerprint is stable" "$_src_before" \
+  "$(_gstack_register_source_fingerprint "$gstack_dir")"
+if cmp -s "$work/cache-golden" "$cache_file"; then
+  _pass "hoist golden: cache file bytes are stable across rewrite"
+else
+  _fail "hoist golden: cache file bytes are stable across rewrite"
+fi
+
 _test_summary

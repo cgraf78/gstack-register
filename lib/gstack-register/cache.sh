@@ -118,28 +118,28 @@ _gstack_register_emit_unexpected_managed_targets() {
 
   [ -d "$claude_dir" ] && for dst in "$claude_dir"/*; do
     [ -e "$dst" ] || [ -L "$dst" ] || continue
-    base=$(basename "$dst")
+    base=${dst##*/}
     [ -n "${_GSTACK_REGISTER_SOURCE_CODEX_NAME_EXISTS[$base]+x}" ] && continue
     _gstack_register_skill_dir_is_managed "$dst" || continue
     printf 'unexpected-target\tclaude/%s\t%s\n' "$base" "$dst"
   done
 
   while IFS= read -r dst; do
-    base=$(basename "$dst")
+    base=${dst##*/}
     [ -n "${_GSTACK_REGISTER_SOURCE_CODEX_NAME_EXISTS[$base]+x}" ] && continue
     _gstack_register_skill_dir_is_managed "$dst" || continue
     printf 'unexpected-target\tgenerated/%s\t%s\n' "$base" "$dst"
   done < <(_gstack_register_each_prefixed_skill_target "$generated_dir")
 
   while IFS= read -r dst; do
-    base=$(basename "$dst")
+    base=${dst##*/}
     [ -n "${_GSTACK_REGISTER_SOURCE_CODEX_NAME_EXISTS[$base]+x}" ] && continue
     _gstack_register_skill_dir_is_managed "$dst" || continue
     printf 'unexpected-target\tcodex/%s\t%s\n' "$base" "$dst"
   done < <(_gstack_register_each_prefixed_skill_target "$codex_dir")
 
   while IFS= read -r dst; do
-    base=$(basename "$dst")
+    base=${dst##*/}
     if [ -n "${_GSTACK_REGISTER_SOURCE_CODEX_NAME_EXISTS[$base]+x}" ] &&
       _gstack_register_grok_skill_allowed "$base"; then
       continue
@@ -149,21 +149,21 @@ _gstack_register_emit_unexpected_managed_targets() {
   done < <(_gstack_register_each_prefixed_skill_target "$grok_dir")
 
   while IFS= read -r dst; do
-    base=$(basename "$dst")
+    base=${dst##*/}
     [ -n "${_GSTACK_REGISTER_SOURCE_CODEX_NAME_EXISTS[$base]+x}" ] && continue
     _gstack_register_skill_dir_is_managed "$dst" || continue
     printf 'unexpected-target\tmuse/%s\t%s\n' "$base" "$dst"
   done < <(_gstack_register_each_prefixed_skill_target "$muse_dir")
 
   while IFS= read -r dst; do
-    base=$(basename "$dst")
+    base=${dst##*/}
     [ -n "${_GSTACK_REGISTER_SOURCE_CODEX_NAME_EXISTS[$base]+x}" ] && continue
     _gstack_register_skill_dir_is_managed "$dst" || continue
     printf 'unexpected-target\tgemini/%s\t%s\n' "$base" "$dst"
   done < <(_gstack_register_each_prefixed_skill_target "$gemini_skill_dir")
 
   while IFS= read -r dst; do
-    base=$(basename "$dst")
+    base=${dst##*/}
     [ -f "$opencode_generated_dir/$base/SKILL.md" ] && continue
     _gstack_register_skill_dir_is_managed "$dst" || continue
     printf 'unexpected-target\topencode/%s\t%s\n' "$base" "$dst"
@@ -176,6 +176,7 @@ _gstack_register_target_fingerprint() {
   local opencode_generated_dir
   local generated_dir
   local i name link_name asset rel skill_dir
+  local link_names
   claude_dir="$(_gstack_register_claude_skills_dir)"
   codex_dir="$(_gstack_register_codex_skills_dir)"
   grok_dir="$(_gstack_register_grok_skills_dir)"
@@ -198,25 +199,31 @@ _gstack_register_target_fingerprint() {
     printf 'version\t%s\n' "$_GSTACK_REGISTER_REGISTRATION_CACHE_VERSION"
     _gstack_register_load_source_skills "$gstack_dir"
 
+    # One fork per skill instead of one per skill per agent section below:
+    # the codex link name is a pure function of the source name, so
+    # compute it once and reuse it. Index-aligned with
+    # _GSTACK_REGISTER_SOURCE_SKILL_NAMES.
+    for i in "${!_GSTACK_REGISTER_SOURCE_SKILL_NAMES[@]}"; do
+      link_names[i]=$(_gstack_register_codex_skill_name "${_GSTACK_REGISTER_SOURCE_SKILL_NAMES[$i]}")
+    done
+
     _gstack_register_emit_target_entry "$generated_dir" "generated"
     _gstack_register_emit_target_entry "$generated_dir/GEMINI.md" "generated/GEMINI.md"
     _gstack_register_emit_target_entry "$generated_dir/SKILLS.md" "generated/SKILLS.md"
     _gstack_register_emit_target_entry "$claude_dir/gstack" "claude/gstack"
     _gstack_register_emit_target_entry "$claude_dir/connect-chrome" "claude/connect-chrome"
     for i in "${!_GSTACK_REGISTER_SOURCE_SKILL_NAMES[@]}"; do
-      name="${_GSTACK_REGISTER_SOURCE_SKILL_NAMES[$i]}"
-      link_name=$(_gstack_register_codex_skill_name "$name")
+      link_name="${link_names[$i]}"
       _gstack_register_is_umbrella_link "$link_name" && continue
       _gstack_register_emit_target_entry "$generated_dir/$link_name" "generated/$link_name"
-      _gstack_register_emit_target_entry "$(_gstack_register_managed_marker "$generated_dir/$link_name")" \
+      _gstack_register_emit_target_entry "$generated_dir/$link_name/.gstack-register-managed" \
         "generated/$link_name/.gstack-register-managed"
       _gstack_register_emit_target_entry "$generated_dir/$link_name/SKILL.md" \
         "generated/$link_name/SKILL.md"
     done
 
     for i in "${!_GSTACK_REGISTER_SOURCE_SKILL_NAMES[@]}"; do
-      name="${_GSTACK_REGISTER_SOURCE_SKILL_NAMES[$i]}"
-      link_name=$(_gstack_register_codex_skill_name "$name")
+      link_name="${link_names[$i]}"
       _gstack_register_is_umbrella_link "$link_name" && continue
       _gstack_register_emit_target_entry "$claude_dir/$link_name" "claude/$link_name"
       _gstack_register_emit_target_entry "$claude_dir/$link_name/SKILL.md" \
@@ -226,11 +233,10 @@ _gstack_register_target_fingerprint() {
     if _gstack_register_has_agent codex; then
       _gstack_register_emit_target_entry "$codex_dir/gstack" "codex/gstack"
       for i in "${!_GSTACK_REGISTER_SOURCE_SKILL_NAMES[@]}"; do
-        name="${_GSTACK_REGISTER_SOURCE_SKILL_NAMES[$i]}"
-        link_name=$(_gstack_register_codex_skill_name "$name")
+        link_name="${link_names[$i]}"
         _gstack_register_is_umbrella_link "$link_name" && continue
         _gstack_register_emit_target_entry "$codex_dir/$link_name" "codex/$link_name"
-        _gstack_register_emit_target_entry "$(_gstack_register_managed_marker "$codex_dir/$link_name")" \
+        _gstack_register_emit_target_entry "$codex_dir/$link_name/.gstack-register-managed" \
           "codex/$link_name/.gstack-register-managed"
         _gstack_register_emit_target_entry "$codex_dir/$link_name/SKILL.md" "codex/$link_name/SKILL.md"
       done
@@ -242,12 +248,11 @@ _gstack_register_target_fingerprint() {
       _gstack_register_emit_target_entry "$grok_dir/gstack" "grok/gstack"
       _gstack_register_emit_target_entry "$grok_dir/connect-chrome" "grok/connect-chrome"
       for i in "${!_GSTACK_REGISTER_SOURCE_SKILL_NAMES[@]}"; do
-        name="${_GSTACK_REGISTER_SOURCE_SKILL_NAMES[$i]}"
-        link_name=$(_gstack_register_codex_skill_name "$name")
+        link_name="${link_names[$i]}"
         _gstack_register_is_umbrella_link "$link_name" && continue
         _gstack_register_grok_skill_allowed "$link_name" || continue
         _gstack_register_emit_target_entry "$grok_dir/$link_name" "grok/$link_name"
-        _gstack_register_emit_target_entry "$(_gstack_register_managed_marker "$grok_dir/$link_name")" \
+        _gstack_register_emit_target_entry "$grok_dir/$link_name/.gstack-register-managed" \
           "grok/$link_name/.gstack-register-managed"
         _gstack_register_emit_target_entry "$grok_dir/$link_name/SKILL.md" "grok/$link_name/SKILL.md"
       done
@@ -257,11 +262,10 @@ _gstack_register_target_fingerprint() {
 
     if _gstack_register_has_agent muse; then
       for i in "${!_GSTACK_REGISTER_SOURCE_SKILL_NAMES[@]}"; do
-        name="${_GSTACK_REGISTER_SOURCE_SKILL_NAMES[$i]}"
-        link_name=$(_gstack_register_codex_skill_name "$name")
+        link_name="${link_names[$i]}"
         _gstack_register_is_umbrella_link "$link_name" && continue
         _gstack_register_emit_target_entry "$muse_dir/$link_name" "muse/$link_name"
-        _gstack_register_emit_target_entry "$(_gstack_register_managed_marker "$muse_dir/$link_name")" \
+        _gstack_register_emit_target_entry "$muse_dir/$link_name/.gstack-register-managed" \
           "muse/$link_name/.gstack-register-managed"
         _gstack_register_emit_target_entry "$muse_dir/$link_name/SKILL.md" "muse/$link_name/SKILL.md"
       done
@@ -271,17 +275,16 @@ _gstack_register_target_fingerprint() {
 
     if _gstack_register_has_agent gemini; then
       _gstack_register_emit_target_entry "$gemini_ext" "gemini-extension"
-      _gstack_register_emit_target_entry "$(_gstack_register_managed_marker "$gemini_ext")" \
+      _gstack_register_emit_target_entry "$gemini_ext/.gstack-register-managed" \
         "gemini-extension/.gstack-register-managed"
       _gstack_register_emit_target_entry "$gemini_ext/gemini-extension.json" \
         "gemini-extension/gemini-extension.json"
       _gstack_register_emit_target_entry "$gemini_ext/GEMINI.md" "gemini-extension/GEMINI.md"
       for i in "${!_GSTACK_REGISTER_SOURCE_SKILL_NAMES[@]}"; do
-        name="${_GSTACK_REGISTER_SOURCE_SKILL_NAMES[$i]}"
-        link_name=$(_gstack_register_codex_skill_name "$name")
+        link_name="${link_names[$i]}"
         _gstack_register_is_umbrella_link "$link_name" && continue
         _gstack_register_emit_target_entry "$gemini_skill_dir/$link_name" "gemini/$link_name"
-        _gstack_register_emit_target_entry "$(_gstack_register_managed_marker "$gemini_skill_dir/$link_name")" \
+        _gstack_register_emit_target_entry "$gemini_skill_dir/$link_name/.gstack-register-managed" \
           "gemini/$link_name/.gstack-register-managed"
         _gstack_register_emit_target_entry "$gemini_skill_dir/$link_name/SKILL.md" \
           "gemini/$link_name/SKILL.md"
@@ -292,12 +295,12 @@ _gstack_register_target_fingerprint() {
 
     if _gstack_register_has_agent opencode; then
       _gstack_register_emit_target_entry "$opencode_generated_dir" "opencode-generated"
-      _gstack_register_emit_target_entry "$(_gstack_register_managed_marker "$opencode_generated_dir")" \
+      _gstack_register_emit_target_entry "$opencode_generated_dir/.gstack-register-managed" \
         "opencode-generated/.gstack-register-managed"
       _gstack_register_emit_target_entry "$opencode_generated_dir/gstack/SKILL.md" \
         "opencode-generated/gstack/SKILL.md"
       _gstack_register_emit_target_entry "$opencode_root" "opencode/gstack"
-      _gstack_register_emit_target_entry "$(_gstack_register_managed_marker "$opencode_root")" \
+      _gstack_register_emit_target_entry "$opencode_root/.gstack-register-managed" \
         "opencode/gstack/.gstack-register-managed"
       _gstack_register_emit_target_entry "$opencode_root/SKILL.md" "opencode/gstack/SKILL.md"
       while IFS=$'\t' read -r asset rel; do
@@ -306,9 +309,10 @@ _gstack_register_target_fingerprint() {
       done < <(_gstack_register_each_opencode_runtime_asset "$gstack_dir")
       for skill_dir in "$opencode_generated_dir"/gstack-*/; do
         [ -f "$skill_dir/SKILL.md" ] || continue
-        link_name=$(basename "$skill_dir")
+        link_name=${skill_dir%/}
+        link_name=${link_name##*/}
         _gstack_register_emit_target_entry "$skill_dir" "opencode-generated/$link_name"
-        _gstack_register_emit_target_entry "$(_gstack_register_managed_marker "${skill_dir%/}")" \
+        _gstack_register_emit_target_entry "${skill_dir%/}/.gstack-register-managed" \
           "opencode-generated/$link_name/.gstack-register-managed"
         _gstack_register_emit_target_entry "$skill_dir/SKILL.md" \
           "opencode-generated/$link_name/SKILL.md"
@@ -457,7 +461,8 @@ _gstack_register_emit_source_watch_entries() {
 
   for skill_dir in "$gstack_dir"/*/; do
     [ -d "$skill_dir" ] || continue
-    base=$(basename "$skill_dir")
+    base=${skill_dir%/}
+    base=${base##*/}
     _gstack_register_skill_dir_is_skipped "$base" && continue
     skill_dir="${skill_dir%/}"
     _gstack_register_emit_watch_entry "$skill_dir"
@@ -478,6 +483,7 @@ _gstack_register_emit_target_watch_entries() {
   local opencode_generated_dir
   local generated_dir
   local i name link_name asset rel skill_dir
+  local link_names
   claude_dir="$(_gstack_register_claude_skills_dir)"
   codex_dir="$(_gstack_register_codex_skills_dir)"
   grok_dir="$(_gstack_register_grok_skills_dir)"
@@ -505,22 +511,28 @@ _gstack_register_emit_target_watch_entries() {
 
   _gstack_register_load_source_skills "$gstack_dir"
 
+  # One fork per skill instead of one per skill per agent section below:
+  # the codex link name is a pure function of the source name, so
+  # compute it once and reuse it. Index-aligned with
+  # _GSTACK_REGISTER_SOURCE_SKILL_NAMES.
+  for i in "${!_GSTACK_REGISTER_SOURCE_SKILL_NAMES[@]}"; do
+    link_names[i]=$(_gstack_register_codex_skill_name "${_GSTACK_REGISTER_SOURCE_SKILL_NAMES[$i]}")
+  done
+
   _gstack_register_emit_watch_entry "$generated_dir/GEMINI.md"
   _gstack_register_emit_watch_entry "$generated_dir/SKILLS.md"
   _gstack_register_emit_watch_entry "$claude_dir/gstack"
   _gstack_register_emit_watch_entry "$claude_dir/connect-chrome"
   for i in "${!_GSTACK_REGISTER_SOURCE_SKILL_NAMES[@]}"; do
-    name="${_GSTACK_REGISTER_SOURCE_SKILL_NAMES[$i]}"
-    link_name=$(_gstack_register_codex_skill_name "$name")
+    link_name="${link_names[$i]}"
     _gstack_register_is_umbrella_link "$link_name" && continue
     _gstack_register_emit_watch_entry "$generated_dir/$link_name"
-    _gstack_register_emit_watch_entry "$(_gstack_register_managed_marker "$generated_dir/$link_name")"
+    _gstack_register_emit_watch_entry "$generated_dir/$link_name/.gstack-register-managed"
     _gstack_register_emit_watch_entry "$generated_dir/$link_name/SKILL.md"
   done
 
   for i in "${!_GSTACK_REGISTER_SOURCE_SKILL_NAMES[@]}"; do
-    name="${_GSTACK_REGISTER_SOURCE_SKILL_NAMES[$i]}"
-    link_name=$(_gstack_register_codex_skill_name "$name")
+    link_name="${link_names[$i]}"
     _gstack_register_is_umbrella_link "$link_name" && continue
     _gstack_register_emit_watch_entry "$claude_dir/$link_name"
     _gstack_register_emit_watch_entry "$claude_dir/$link_name/SKILL.md"
@@ -528,62 +540,59 @@ _gstack_register_emit_target_watch_entries() {
 
   _gstack_register_emit_watch_entry "$codex_dir/gstack"
   for i in "${!_GSTACK_REGISTER_SOURCE_SKILL_NAMES[@]}"; do
-    name="${_GSTACK_REGISTER_SOURCE_SKILL_NAMES[$i]}"
-    link_name=$(_gstack_register_codex_skill_name "$name")
+    link_name="${link_names[$i]}"
     _gstack_register_is_umbrella_link "$link_name" && continue
     _gstack_register_emit_watch_entry "$codex_dir/$link_name"
-    _gstack_register_emit_watch_entry "$(_gstack_register_managed_marker "$codex_dir/$link_name")"
+    _gstack_register_emit_watch_entry "$codex_dir/$link_name/.gstack-register-managed"
     _gstack_register_emit_watch_entry "$codex_dir/$link_name/SKILL.md"
   done
 
   _gstack_register_emit_watch_entry "$grok_dir/gstack"
   _gstack_register_emit_watch_entry "$grok_dir/connect-chrome"
   for i in "${!_GSTACK_REGISTER_SOURCE_SKILL_NAMES[@]}"; do
-    name="${_GSTACK_REGISTER_SOURCE_SKILL_NAMES[$i]}"
-    link_name=$(_gstack_register_codex_skill_name "$name")
+    link_name="${link_names[$i]}"
     _gstack_register_is_umbrella_link "$link_name" && continue
     _gstack_register_grok_skill_allowed "$link_name" || continue
     _gstack_register_emit_watch_entry "$grok_dir/$link_name"
-    _gstack_register_emit_watch_entry "$(_gstack_register_managed_marker "$grok_dir/$link_name")"
+    _gstack_register_emit_watch_entry "$grok_dir/$link_name/.gstack-register-managed"
     _gstack_register_emit_watch_entry "$grok_dir/$link_name/SKILL.md"
   done
 
   for i in "${!_GSTACK_REGISTER_SOURCE_SKILL_NAMES[@]}"; do
-    name="${_GSTACK_REGISTER_SOURCE_SKILL_NAMES[$i]}"
-    link_name=$(_gstack_register_codex_skill_name "$name")
+    link_name="${link_names[$i]}"
     _gstack_register_is_umbrella_link "$link_name" && continue
     _gstack_register_emit_watch_entry "$muse_dir/$link_name"
-    _gstack_register_emit_watch_entry "$(_gstack_register_managed_marker "$muse_dir/$link_name")"
+    _gstack_register_emit_watch_entry "$muse_dir/$link_name/.gstack-register-managed"
     _gstack_register_emit_watch_entry "$muse_dir/$link_name/SKILL.md"
   done
 
   _gstack_register_emit_watch_entry "$gemini_ext"
-  _gstack_register_emit_watch_entry "$(_gstack_register_managed_marker "$gemini_ext")"
+  _gstack_register_emit_watch_entry "$gemini_ext/.gstack-register-managed"
   _gstack_register_emit_watch_entry "$gemini_ext/gemini-extension.json"
   _gstack_register_emit_watch_entry "$gemini_ext/GEMINI.md"
   for i in "${!_GSTACK_REGISTER_SOURCE_SKILL_NAMES[@]}"; do
-    name="${_GSTACK_REGISTER_SOURCE_SKILL_NAMES[$i]}"
-    link_name=$(_gstack_register_codex_skill_name "$name")
+    link_name="${link_names[$i]}"
     _gstack_register_is_umbrella_link "$link_name" && continue
     _gstack_register_emit_watch_entry "$gemini_skill_dir/$link_name"
-    _gstack_register_emit_watch_entry "$(_gstack_register_managed_marker "$gemini_skill_dir/$link_name")"
+    _gstack_register_emit_watch_entry "$gemini_skill_dir/$link_name/.gstack-register-managed"
     _gstack_register_emit_watch_entry "$gemini_skill_dir/$link_name/SKILL.md"
   done
 
   _gstack_register_emit_watch_entry "$opencode_root"
-  _gstack_register_emit_watch_entry "$(_gstack_register_managed_marker "$opencode_root")"
+  _gstack_register_emit_watch_entry "$opencode_root/.gstack-register-managed"
   _gstack_register_emit_watch_entry "$opencode_root/SKILL.md"
   while IFS=$'\t' read -r asset rel; do
     [ -n "$asset" ] || continue
     _gstack_register_emit_watch_entry "$opencode_root/$rel"
   done < <(_gstack_register_each_opencode_runtime_asset "$gstack_dir")
-  _gstack_register_emit_watch_entry "$(_gstack_register_managed_marker "$opencode_generated_dir")"
+  _gstack_register_emit_watch_entry "$opencode_generated_dir/.gstack-register-managed"
   _gstack_register_emit_watch_entry "$opencode_generated_dir/gstack/SKILL.md"
   for skill_dir in "$opencode_generated_dir"/gstack-*/; do
     [ -f "$skill_dir/SKILL.md" ] || continue
-    link_name=$(basename "$skill_dir")
+    link_name=${skill_dir%/}
+    link_name=${link_name##*/}
     _gstack_register_emit_watch_entry "${skill_dir%/}"
-    _gstack_register_emit_watch_entry "$(_gstack_register_managed_marker "${skill_dir%/}")"
+    _gstack_register_emit_watch_entry "${skill_dir%/}/.gstack-register-managed"
     _gstack_register_emit_watch_entry "$skill_dir/SKILL.md"
     _gstack_register_emit_watch_entry "$opencode_dir/$link_name"
     _gstack_register_emit_watch_entry "$opencode_dir/$link_name/SKILL.md"
