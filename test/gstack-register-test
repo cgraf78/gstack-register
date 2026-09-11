@@ -111,6 +111,8 @@ _assert_eq "source inventory: retained skills stay in the name index" \
 # would keep serving the pre-edit registration set.
 # shellcheck source=../gstack-register/managed.sh
 . "$lib/managed.sh" 2>/dev/null || true
+# shellcheck source=../gstack-register/opencode.sh
+. "$lib/opencode.sh" 2>/dev/null || true
 # shellcheck source=../gstack-register/cache.sh
 . "$lib/cache.sh"
 _gstack_register_reset_source_cache

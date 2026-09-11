@@ -1,0 +1,228 @@
+#!/usr/bin/env bash
+# Cache fast-path behavior: sync lifecycle, fingerprint relations, and the
+# fingerprint-rescue paths that keep warm syncs fast.
+#
+# shellcheck disable=SC1090,SC1091,SC2034
+
+set -o pipefail
+export NO_COLOR=1
+
+repo_root=$(cd "${BASH_SOURCE[0]%/*}/.." && pwd -P) || exit 1
+# shellcheck source=lib/test.sh
+. "$repo_root/test/lib/test.sh"
+
+work=$(_tmpdir)
+lib="$repo_root/lib/gstack-register"
+# shellcheck source=../gstack-register/api.sh
+. "$lib/api.sh"
+
+home=$(_tmpdir)
+export HOME="$home"
+export XDG_CONFIG_HOME="$home/.config" XDG_DATA_HOME="$home/.local/share"
+export XDG_STATE_HOME="$home/.local/state" XDG_CACHE_HOME="$home/.cache"
+
+gstack_dir="$work/gstack"
+mkdir -p "$gstack_dir"
+cat >"$gstack_dir/SKILL.md" <<'EOF'
+---
+name: gstack
+description: Fixture umbrella skill.
+---
+EOF
+for name in alpha beta gamma; do
+  mkdir -p "$gstack_dir/$name"
+  {
+    printf -- '---\nname: %s\ndescription: Fixture skill %s.\n---\n' "$name" "$name"
+    printf '# %s\n\nBody with a legacy path ~/.claude/skills/gstack/bin/tool.\n' "$name"
+  } >"$gstack_dir/$name/SKILL.md"
+done
+export GSTACK_REGISTER_SOURCE_DIR="$gstack_dir"
+export GSTACK_REGISTER_SKILL_EXCLUDE_FILE="$work/absent-exclude"
+export GSTACK_REGISTER_SKILL_GROK_ALLOW_FILE="$work/absent-grok-allow"
+
+# No agent CLIs: sync still registers generated skills plus file-based
+# targets, deterministically on every host.
+mockbin=$(_mock_bin)
+export PATH="$mockbin:/usr/bin:/bin"
+
+_sync() {
+  gstack_register_sync 2>&1
+  printf 'rc=%s\n' "$?"
+}
+
+cache_file=$(_gstack_register_registration_cache_file)
+
+# --- cold sync regenerates and writes the cache ---------------------------
+cold_out=$(_sync)
+_assert_contains "cache lifecycle: cold sync regenerates" \
+  "gstack skill registration" "$cold_out"
+_assert_not_contains "cache lifecycle: cold sync is not current" \
+  "current" "$cold_out"
+_assert_file_exists "cache lifecycle: cold sync writes the cache" "$cache_file"
+
+# --- warm sync reports current ----------------------------------------------
+warm_out=$(_sync)
+_assert_contains "cache lifecycle: warm sync reports current" \
+  "gstack skill registration current" "$warm_out"
+
+# --- mtime-only source touch is rescued by fingerprints ---------------------
+touch "$gstack_dir/alpha/SKILL.md"
+touch_out=$(_sync)
+_assert_contains "cache lifecycle: mtime-only source touch stays current" \
+  "gstack skill registration current" "$touch_out"
+
+# --- source content edits regenerate ----------------------------------------
+printf '\nEdited body.\n' >>"$gstack_dir/beta/SKILL.md"
+edit_out=$(_sync)
+_assert_not_contains "cache lifecycle: source content edit regenerates" \
+  "current" "$edit_out"
+generated_beta="$(_gstack_register_generated_skills_dir)/gstack-beta/SKILL.md"
+_assert_contains "cache lifecycle: regenerated copy carries the edit" \
+  "Edited body." "$(cat "$generated_beta")"
+
+# --- target link deletion is repaired ----------------------------------------
+claude_link="$(_gstack_register_claude_skills_dir)/gstack-gamma"
+if [[ -L "$claude_link" ]]; then
+  rm "$claude_link"
+  repair_out=$(_sync)
+  _assert_not_contains "cache lifecycle: deleted target link regenerates" \
+    "current" "$repair_out"
+  if [[ -L "$claude_link" ]]; then
+    _pass "cache lifecycle: deleted target link is restored"
+  else
+    _fail "cache lifecycle: deleted target link is restored"
+  fi
+else
+  _fail "cache lifecycle: fixture must publish a claude link (got $claude_link)"
+fi
+
+# --- unexpected managed targets are repaired ----------------------------------
+claude_dir=$(_gstack_register_claude_skills_dir)
+mkdir -p "$claude_dir/stale-skill"
+: >"$(_gstack_register_managed_marker "$claude_dir/stale-skill")"
+stale_out=$(_sync)
+_assert_not_contains "cache lifecycle: unexpected managed target regenerates" \
+  "current" "$stale_out"
+_assert_path_missing "cache lifecycle: unexpected managed target is removed" \
+  "$claude_dir/stale-skill"
+
+# --- agent availability changes regenerate ------------------------------------
+printf '#!/usr/bin/env bash\nexit 0\n' >"$mockbin/codex"
+chmod +x "$mockbin/codex"
+agent_out=$(_sync)
+_assert_not_contains "cache lifecycle: agent appearing regenerates" \
+  "current" "$agent_out"
+rm "$mockbin/codex"
+agent_gone_out=$(_sync)
+_assert_not_contains "cache lifecycle: agent disappearing regenerates" \
+  "current" "$agent_gone_out"
+
+# --- fingerprint relations ----------------------------------------------------
+_gstack_register_reset_source_cache
+_GSTACK_REGISTER_TARGET_FRESHNESS_CACHE_FILE="$cache_file"
+source_before=$(_gstack_register_source_fingerprint "$gstack_dir")
+target_before=$(_gstack_register_target_fingerprint "$gstack_dir")
+touch "$gstack_dir/alpha/SKILL.md"
+source_touched=$(_gstack_register_source_fingerprint "$gstack_dir")
+target_touched=$(_gstack_register_target_fingerprint "$gstack_dir")
+_assert_eq "fingerprint: source fingerprint ignores mtime-only touches" \
+  "$source_before" "$source_touched"
+_assert_eq "fingerprint: target fingerprint ignores source mtime touches" \
+  "$target_before" "$target_touched"
+
+printf '\nAnother edit.\n' >>"$gstack_dir/gamma/SKILL.md"
+_gstack_register_reset_source_cache
+source_edited=$(_gstack_register_source_fingerprint "$gstack_dir")
+if [[ "$source_edited" != "$source_before" ]]; then
+  _pass "fingerprint: source fingerprint moves on content edits"
+else
+  _fail "fingerprint: source fingerprint moves on content edits"
+fi
+
+# Opencode target entries are keyed by the runtime asset listing, so the
+# source fingerprint must notice a runtime asset appearing under an
+# already-listed directory. Without this, a warm sync could skip the target
+# proof that notices the new link.
+mkdir -p "$gstack_dir/design/dist"
+printf 'design\n' >"$gstack_dir/design/dist/design"
+_gstack_register_reset_source_cache
+source_runtime=$(_gstack_register_source_fingerprint "$gstack_dir")
+if [[ "$source_runtime" != "$source_edited" ]]; then
+  _pass "fingerprint: source fingerprint moves on runtime asset arrival"
+else
+  _fail "fingerprint: source fingerprint moves on runtime asset arrival"
+fi
+rm -rf "$gstack_dir/design"
+
+rm "$claude_link"
+target_broken=$(_gstack_register_target_fingerprint "$gstack_dir")
+if [[ "$target_broken" != "$target_before" ]]; then
+  _pass "fingerprint: target fingerprint moves on target changes"
+else
+  _fail "fingerprint: target fingerprint moves on target changes"
+fi
+_GSTACK_REGISTER_TARGET_FRESHNESS_CACHE_FILE=''
+# Repair the deliberately broken link so later tests see a sane tree.
+_sync >/dev/null
+
+# --- target fingerprint call counts --------------------------------------------
+# Perf: a source-only watch trip (mtime touch, same content) must not pay
+# for the expensive target fingerprint — the slowest step of a warm sync.
+# Any target-side change must still force its recomputation.
+_target_fp_def=$(declare -f _gstack_register_target_fingerprint)
+eval "${_target_fp_def/_gstack_register_target_fingerprint/_gstack_register_target_fingerprint_orig}"
+# shellcheck disable=SC2329 # invoked indirectly through gstack_register_sync
+_gstack_register_target_fingerprint() {
+  printf 'call\n' >>"$work/target-fp-calls.log"
+  _gstack_register_target_fingerprint_orig "$@"
+}
+: >"$work/target-fp-calls.log"
+touch "$gstack_dir/alpha/SKILL.md"
+touch_count_out=$(_sync)
+touch_calls=$(wc -l <"$work/target-fp-calls.log" | tr -d ' ')
+_assert_contains "cache calls: touch sync still reports current" \
+  "gstack skill registration current" "$touch_count_out"
+_assert_eq "cache calls: source-only trip skips the target fingerprint" \
+  "0" "$touch_calls"
+
+# A concurrent target change must defeat the skip and still repair.
+: >"$work/target-fp-calls.log"
+touch "$gstack_dir/beta/SKILL.md"
+rm "$claude_link"
+touch_target_out=$(_sync)
+touch_target_calls=$(wc -l <"$work/target-fp-calls.log" | tr -d ' ')
+_assert_not_contains "cache calls: target change with source touch regenerates" \
+  "current" "$touch_target_out"
+if [[ "$touch_target_calls" -ge 1 ]]; then
+  _pass "cache calls: target change forces target fingerprint recompute"
+else
+  _fail "cache calls: target change forces target fingerprint recompute"
+fi
+if [[ -L "$claude_link" ]]; then
+  _pass "cache calls: concurrent target link is restored"
+else
+  _fail "cache calls: concurrent target link is restored"
+fi
+
+# An agent change is target-side too: it must force the full proof even
+# when the source fingerprint still matches.
+: >"$work/target-fp-calls.log"
+touch "$gstack_dir/gamma/SKILL.md"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$mockbin/codex"
+chmod +x "$mockbin/codex"
+touch_agent_out=$(_sync)
+touch_agent_calls=$(wc -l <"$work/target-fp-calls.log" | tr -d ' ')
+_assert_not_contains "cache calls: agent change with source touch regenerates" \
+  "current" "$touch_agent_out"
+if [[ "$touch_agent_calls" -ge 1 ]]; then
+  _pass "cache calls: agent change forces target fingerprint recompute"
+else
+  _fail "cache calls: agent change forces target fingerprint recompute"
+fi
+rm "$mockbin/codex"
+_sync >/dev/null
+# Restore the original for the remaining tests.
+unset -f _gstack_register_target_fingerprint
+eval "$_target_fp_def"
+
+_test_summary

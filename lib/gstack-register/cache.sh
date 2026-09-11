@@ -7,7 +7,7 @@
 # validates and repairs the managed tree.
 
 _gstack_register_source_fingerprint() {
-  local gstack_dir="$1" skill_dir rel name sum asset agent
+  local gstack_dir="$1" skill_dir rel name sum asset agent source kind state
 
   {
     # The source fingerprint captures every input that can change what the
@@ -41,6 +41,25 @@ _gstack_register_source_fingerprint() {
         printf 'asset\t%s\tmissing\n' "$asset"
       fi
     done
+    # The opencode target entries are keyed by which runtime asset candidates
+    # exist, so record each candidate's existence with the same predicates the
+    # asset listing uses. Existence only: runtime assets are symlinked into
+    # place, so content stays live without regeneration, and recording more
+    # (types, hashes) would regenerate where the target fingerprint sees no
+    # change. Without this, a runtime asset appearing under an already-listed
+    # directory would leave the source fingerprint unchanged and a warm sync
+    # could wrongly skip the target proof that notices the new link.
+    while IFS=$'\t' read -r source rel kind; do
+      [ -n "$source" ] || continue
+      if [ "$kind" = file ]; then
+        [ -f "$source" ] && state=present || state=missing
+      elif [ -e "$source" ] || [ -L "$source" ]; then
+        state=present
+      else
+        state=missing
+      fi
+      printf 'opencode-runtime\t%s\t%s\n' "$rel" "$state"
+    done < <(_gstack_register_each_opencode_runtime_source_candidate "$gstack_dir")
     for agent in "${_GSTACK_REGISTER_KNOWN_AGENTS[@]}"; do
       printf 'agent\t%s\t%s\n' "$agent" "$(
         _gstack_register_has_agent "$agent"
@@ -331,8 +350,38 @@ _gstack_register_cache_watch_entry_current() {
   esac
 }
 
+# Classifies a watch path as source-side: inside the source tree, or one of
+# the skill policy files whose content feeds the source fingerprint. Every
+# other watched path guards target state instead.
+_gstack_register_watch_path_is_source() {
+  case "$2" in
+    "$1"/*) return 0 ;;
+  esac
+  [ -n "${GSTACK_REGISTER_SKILL_EXCLUDE_FILE:-}" ] &&
+    [ "$2" = "$GSTACK_REGISTER_SKILL_EXCLUDE_FILE" ] && return 0
+  [ -n "${GSTACK_REGISTER_SKILL_GROK_ALLOW_FILE:-}" ] &&
+    [ "$2" = "$GSTACK_REGISTER_SKILL_GROK_ALLOW_FILE" ] && return 0
+  return 1
+}
+
 _gstack_register_registration_watch_current() {
-  local cache_file="$1" key first second version='' source='' target=''
+  _gstack_register_registration_watch_check "$1" all ""
+}
+
+# Target-side subset of the watch validation above: agent states plus every
+# watch entry outside the source tree (and outside the exclude/allowlist
+# files, which feed the source fingerprint). Used after a matching source
+# fingerprint to skip the expensive target fingerprint: with the source
+# inventory proven unchanged and no target-side watch tripped, the target
+# fingerprint cannot have moved by the same mtime argument that makes the
+# full fast path sound.
+_gstack_register_registration_target_watch_current() {
+  _gstack_register_registration_watch_check "$1" target "$2"
+}
+
+_gstack_register_registration_watch_check() {
+  local cache_file="$1" mode="$2" gstack_dir="$3"
+  local key first second version='' source='' target=''
   local saw_watch=0 cache_contents seen_agents=' ' expected_agent
 
   cache_contents=$(cat "$cache_file" 2>/dev/null) || return 1
@@ -360,6 +409,10 @@ _gstack_register_registration_watch_current() {
         esac
         ;;
       watch)
+        if [ "$mode" = target ] &&
+          _gstack_register_watch_path_is_source "$gstack_dir" "$second"; then
+          continue
+        fi
         saw_watch=1
         _gstack_register_cache_watch_entry_current "$cache_file" "$first" "$second" || return 1
         ;;
@@ -590,6 +643,19 @@ _gstack_register_registration_cache_current() {
   if [ "$source_fingerprint" != "$cached_source" ]; then
     [ -z "$rearm_fence" ] || _gstack_register_remove_temp "$rearm_fence" || true
     return 1
+  fi
+
+  # Source matches but some watch tripped. When every tripped watch is
+  # source-side (typically a content-identical mtime bump), the target
+  # fingerprint cannot have moved either, so skip its recomputation — the
+  # single most expensive step of a warm sync. Any tripped target-side watch
+  # (or agent state change) still falls through to the full proof below.
+  if _gstack_register_registration_target_watch_current "$cache_file" "$gstack_dir"; then
+    if [ -n "$rearm_fence" ]; then
+      touch -r "$rearm_fence" "$cache_file" 2>/dev/null || true
+      _gstack_register_remove_temp "$rearm_fence" || true
+    fi
+    return 0
   fi
 
   # Recompute target state after source matches. This is the expensive part we
