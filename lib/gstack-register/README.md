@@ -17,8 +17,9 @@ command rather than source `api.sh`.
   single conservative gate before removal.
 - `migration.sh` repairs the old `$HOME/.gstack` checkout symlink by moving only
   allowlisted upstream runtime entries.
-- `generated.sh` writes the shared Claude/Codex/Gemini skill tree, Grok-rewritten
-  dest copies, and Gemini context with same-directory temporary files.
+- `generated.sh` writes the shared Claude/Codex/Gemini/Muse skill tree,
+  Grok-rewritten dest copies, and Gemini context with same-directory temporary
+  files.
 - `opencode.sh` writes OpenCode frontmatter and runtime assets without Bun,
   preserves user-owned roots and skills, and omits the recursive Codex wrapper.
 - `targets.sh` reconciles Claude, Codex, Gemini, Grok, and Muse registrations,

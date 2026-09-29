@@ -128,6 +128,12 @@ Agent-visible registrations are:
 - Muse: `$XDG_CONFIG_HOME/muse/skills/gstack-*`; and
 - OpenCode: `$XDG_CONFIG_HOME/opencode/skills/gstack` and `gstack-*`.
 
+Muse entries are not links: Muse owns its skills directory, so `sync` installs
+copies of the shared generated skills with `muse skills install --force` and
+removes stale ones with `muse skills uninstall`, then prunes any leftover
+managed directories. A copy is reinstalled only when the CLI no longer lists
+it or its `SKILL.md` differs from the generated tree.
+
 The Claude-compatible target is maintained on every sync. Codex, Gemini, Grok,
 Muse, and OpenCode targets are maintained only while their corresponding
 command is available; managed targets are removed when an agent disappears.
@@ -179,7 +185,8 @@ does not silently change its mode or umask semantics.
 
 `gstack-register` requires Bash 4.0 or newer because the source inventory uses
 associative arrays. It otherwise relies only on common Unix tools including
-`awk`, `sed`, `cksum`, `mktemp`, `readlink`, and `ln`. It does not invoke Bun,
+`awk`, `sed`, `cksum`, `mktemp`, `readlink`, and `ln`. Muse registration
+additionally uses the `muse` CLI when it is on `PATH`. It does not invoke Bun,
 Playwright, gstack `setup`, or gstack's uninstall command.
 
 ## Development
@@ -189,6 +196,10 @@ Run the complete behavior, installer, and ShellCheck suite:
 ```bash
 test/run
 ```
+
+ShellCheck is skipped when `shellcheck` is not on `PATH` or when
+`GSTACK_REGISTER_SKIP_SHELLCHECK=1` is set, so install it locally to get the
+full suite.
 
 All fixtures use synthetic public skill content inside validated temporary
 homes. They never inspect or modify installed agent trees. See

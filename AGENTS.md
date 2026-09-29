@@ -17,8 +17,9 @@ state. Ownership and XDG rules are in [docs/design.md](docs/design.md).
   new registrations are published.
 - `managed.sh` is the single conservative gate before removal.
 - `generated.sh` / `opencode.sh` write provider-owned skill trees.
-- `targets.sh` reconciles agent links; `cache.sh` fingerprints inputs
-  and outputs.
+- `targets.sh` reconciles agent links and Muse's CLI-installed copies
+  (`muse skills install --force` / `uninstall`); `cache.sh`
+  fingerprints inputs and outputs.
 - Modules are version-coupled to the launcher, not a separately
   versioned shell API.
 
@@ -44,7 +45,8 @@ CI (ShellCheck is the shared inventory job):
 GSTACK_REGISTER_SKIP_SHELLCHECK=1 test/run
 ```
 
-Local (includes ShellCheck from `.github/shellcheck-files.txt`):
+Local (includes ShellCheck from `.github/shellcheck-files.txt` when
+`shellcheck` is on `PATH`):
 
 ```sh
 test/run
