@@ -12,8 +12,12 @@ steady state for inexpensive repeated syncs.
 
 It is for people who already use gstack: use it if you want gstack's skills in
 agents other than Claude Code, or on machines where you would rather not install
-Bun and Playwright for gstack's own setup. To share global agent *rules* the
-same way, see [agent-rules-sync](https://github.com/cgraf78/agent-rules-sync).
+Bun and Playwright for gstack's own setup. Skills that drive gstack's headless
+browser, such as `browse` and `design-review`, still need the binary that
+gstack's own setup builds; without it they register but fail when used, so
+list them in the [exclusion file](#configuration). To share global agent
+*rules* the same way, see
+[agent-rules-sync](https://github.com/cgraf78/agent-rules-sync).
 
 ## Quick start
 
