@@ -10,10 +10,22 @@ heavier setup or requiring Bun. It generates the agent-specific skill shapes, re
 managed links, preserves unrelated skills on collisions, and caches a proven
 steady state for inexpensive repeated syncs.
 
-```console
+It is for people who already use gstack: use it if you want gstack's skills in
+agents other than Claude Code, or on machines where you would rather not install
+Bun and Playwright for gstack's own setup. To share global agent *rules* the
+same way, see [agent-rules-sync](https://github.com/cgraf78/agent-rules-sync).
+
+## Quick start
+
+```bash
+git clone https://github.com/garrytan/gstack "${XDG_DATA_HOME:-$HOME/.local/share}/garrytan/gstack"
+curl -fsSL https://raw.githubusercontent.com/cgraf78/gstack-register/main/install.sh | bash
 gstack-register sync
-gstack-register uninstall
 ```
+
+The installer links the command into `~/.local/bin`, which must be on your
+`PATH`. Rerun `gstack-register sync` after updating the gstack checkout;
+`gstack-register uninstall` removes only what it created.
 
 ## Installation
 
@@ -148,9 +160,9 @@ managed targets, and runtime-asset changes all force a full repair pass.
 
 ## Migration and cleanup
 
-Older dotfiles installations stored generated trees and a cache below
-`$HOME/.gstack`, and some made `$HOME/.gstack` a symlink to the source checkout.
-`sync` recognizes those exact legacy markers and paths. It moves only the
+Earlier versions of the author's dotfiles stored generated trees and a cache
+below `$HOME/.gstack`, and some made `$HOME/.gstack` a symlink to the source
+checkout. `sync` recognizes those exact legacy markers and paths. It moves only the
 allowlisted upstream runtime state out of the old symlink, publishes the new
 XDG trees, relinks agent targets, and only then removes positively identified
 legacy artifacts. Unknown checkout content and unexpected symlinks are left
