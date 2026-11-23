@@ -107,9 +107,11 @@ chmod +x "$_prov_agent_bin/codex" "$_prov_agent_bin/gemini" \
   "$_prov_agent_bin/grok" "$_prov_agent_bin/muse" "$_prov_agent_bin/opencode"
 _saved_home=$HOME
 _saved_path=$PATH
+fixture_tools=$(_fixture_tools) || exit 1
 HOME=$_prov_home
-PATH="$_prov_agent_bin:$PATH"
+PATH="$_prov_agent_bin:$fixture_tools"
 export HOME PATH
+unset GSTACK_REGISTER_OPENCODE_COMMAND
 export GSTACK_MUSE_LOG=$_prov_muse_log
 
 # shellcheck source=../lib/gstack-register/api.sh

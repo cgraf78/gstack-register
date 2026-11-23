@@ -141,6 +141,27 @@ _mock_bin() {
   _tmpdir
 }
 
+# Registration fixtures need real Unix tools and the matrix-selected Bash,
+# while every agent on their PATH must come from a fixture.
+_fixture_tools() {
+  local tool_dir tool tool_path
+  tool_dir=$(_tmpdir) || return 1
+  ln -s "$BASH" "$tool_dir/bash" || return 1
+  for tool in awk basename cat chmod cksum cp cut date dirname grep head ln ls \
+    mkdir mktemp mv readlink rm rmdir sed sleep sort stat tail touch tr wc cmp; do
+    if ! tool_path=$(type -P "$tool"); then
+      # Minimal CI images may omit diffutils. Production falls back to cksum.
+      [[ "$tool" == cmp ]] && continue
+      printf 'gstack-register test: missing fixture utility: %s\n' "$tool" >&2
+      return 1
+    fi
+    # A relative PATH entry is relative to discovery, even after symlinking.
+    [[ "$tool_path" == /* ]] || tool_path="$PWD/$tool_path"
+    ln -s "$tool_path" "$tool_dir/$tool" || return 1
+  done
+  printf '%s\n' "$tool_dir"
+}
+
 _test_summary() {
   printf '\n================================\n'
   printf 'Results: %s passed, %s failed\n' "$PASS" "$FAIL"

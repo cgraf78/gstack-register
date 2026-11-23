@@ -40,10 +40,21 @@ export GSTACK_REGISTER_SOURCE_DIR="$gstack_dir"
 export GSTACK_REGISTER_SKILL_EXCLUDE_FILE="$work/absent-exclude"
 export GSTACK_REGISTER_SKILL_GROK_ALLOW_FILE="$work/absent-grok-allow"
 
-# No agent CLIs: sync still registers generated skills plus file-based
-# targets, deterministically on every host.
+# Model an unrelated OpenCode installation alongside the system utilities so
+# the absent-agent cases exercise isolation even on CI hosts without OpenCode.
 mockbin=$(_mock_bin)
-export PATH="$mockbin:/usr/bin:/bin"
+ambient_bin=$(_mock_bin)
+printf '#!/usr/bin/env bash\nexit 1\n' >"$ambient_bin/opencode"
+chmod +x "$ambient_bin/opencode"
+export PATH="$ambient_bin:$PATH"
+unset GSTACK_REGISTER_OPENCODE_COMMAND
+
+_assert_eq "agent fixture: ambient OpenCode is on PATH" \
+  "$ambient_bin/opencode" "$(command -v opencode)"
+fixture_tools=$(_fixture_tools) || exit 1
+export PATH="$mockbin:$fixture_tools"
+_gstack_register_has_agent opencode
+_assert_exit "agent fixture: OpenCode is absent until installed by the fixture" 1 "$?"
 
 _sync() {
   gstack_register_sync 2>&1
