@@ -7,6 +7,9 @@ FAIL=0
 # Every suite installs its own fixture HOME. Ignore caller XDG roots unless a
 # test explicitly sets one, so no provider path can escape that fixture.
 unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME
+# Descendant shells must keep the caller's startup files from replacing the
+# private PATH and XDG roots. Cases can still supply a startup file explicitly.
+unset BASH_ENV ENV
 
 _pass() {
   PASS=$((PASS + 1))
