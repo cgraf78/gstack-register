@@ -4,7 +4,7 @@
 set -o pipefail
 export NO_COLOR=1
 
-repo_root=$(cd "${BASH_SOURCE[0]%/*}/.." && pwd -P) || exit 1
+repo_root=$(CDPATH='' cd "${BASH_SOURCE[0]%/*}/.." && pwd -P) || exit 1
 # shellcheck source=lib/test.sh
 . "$repo_root/test/lib/test.sh"
 
@@ -22,6 +22,23 @@ _assert_contains "help: documents Grok allowlist" \
 work=$(_tmpdir)
 home="$work/home"
 mkdir -p "$home"
+
+# Only record descendants. Bash has already initialized the test shell before
+# the fixture gets control, but its real CLI must use the fixture environment.
+startup="$work/bash-startup"
+startup_marker="$work/bash-startup-ran"
+cat >"$startup" <<'BASH_FILE'
+case "${0##*/}" in
+  gstack-register) printf 'loaded\n' >"$STARTUP_MARKER" ;;
+esac
+BASH_FILE
+# shellcheck disable=SC2016 # The child expands the helper and CLI arguments.
+BASH_ENV="$startup" STARTUP_MARKER="$startup_marker" HOME="$home" "$BASH" -ec '
+  . "$1"
+  "$2" --help >/dev/null
+' bash "$repo_root/test/lib/test.sh" "$cli"
+_assert_exit "startup isolation: real CLI launches successfully" 0 "$?"
+_assert_file_missing "startup isolation: the CLI does not read caller BASH_ENV" "$startup_marker"
 
 # macOS ships /bin/bash 3.2 even when the CI job itself correctly selects a
 # newer Homebrew Bash. Exercise the public launcher's fail-fast guard wherever

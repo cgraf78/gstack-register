@@ -3,7 +3,7 @@
 
 set -o pipefail
 
-repo_root=$(cd "${BASH_SOURCE[0]%/*}/.." && pwd -P) || exit 1
+repo_root=$(CDPATH='' cd "${BASH_SOURCE[0]%/*}/.." && pwd -P) || exit 1
 # shellcheck source=lib/test.sh
 . "$repo_root/test/lib/test.sh"
 
@@ -12,6 +12,42 @@ repo_root=$(cd "${BASH_SOURCE[0]%/*}/.." && pwd -P) || exit 1
 # path from the physical root so the managed-checkout input is normalized.
 work=$(_tmpdir)
 work=$(cd -P -- "$work" && pwd -P)
+
+caller="$work/caller"
+fixture="$work/fixture"
+mkdir "$caller" "$fixture"
+git -C "$caller" init --quiet --template='' --initial-branch=caller
+git config --file "$work/caller.gitconfig" fixture.sentinel preserved
+scope_status=0
+# shellcheck disable=SC2016 # The child expands the helper and repository arguments.
+scope_result=$(GIT_DIR="$caller/.git" GIT_WORK_TREE="$caller" \
+  GIT_CONFIG_GLOBAL="$work/caller.gitconfig" GIT_CONFIG_COUNT=1 \
+  GIT_CONFIG_KEY_0=fixture.injected GIT_CONFIG_VALUE_0=caller "$BASH" -ec '
+    . "$1"
+    git -C "$2" init --quiet --template="" --initial-branch=fixture
+    git -C "$2" config --global fixture.writable yes
+    if git -C "$2" config --get-regexp "^fixture\.(sentinel|injected)$"; then
+      exit 1
+    fi
+    git -C "$2" symbolic-ref --short HEAD
+  ' bash "$repo_root/test/lib/test.sh" "$fixture" 2>&1) || scope_status=$?
+_assert_exit "installer fixture: inherited Git context is isolated" 0 "$scope_status"
+_assert_eq "installer fixture: Git uses the fixture branch" fixture "$scope_result"
+_assert_eq "installer fixture: caller branch is preserved" \
+  caller "$(git -C "$caller" symbolic-ref --short HEAD)"
+_assert_eq "installer fixture: caller global config is preserved" \
+  $'[fixture]\n\tsentinel = preserved' "$(cat "$work/caller.gitconfig")"
+
+colon_tmp="$work/tmp:parent"
+mkdir "$colon_tmp"
+colon_status=0
+# shellcheck disable=SC2016 # The child expands the helper argument.
+colon_output=$(TMPDIR="$colon_tmp" "$BASH" -c '. "$1"' bash \
+  "$repo_root/test/lib/test.sh" 2>&1) || colon_status=$?
+_assert_exit "installer fixture: a colon in TMPDIR is rejected" 2 "$colon_status"
+_assert_contains "installer fixture: TMPDIR error explains the PATH requirement" \
+  "TMPDIR must not contain a colon" "$colon_output"
+
 prefix="$work/prefix"
 wrapper="$repo_root/install.sh"
 delegate="$repo_root/support/install-checkout.sh"

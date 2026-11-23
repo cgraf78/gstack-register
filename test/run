@@ -3,19 +3,22 @@
 
 set -u
 
-repo_root=$(cd "${BASH_SOURCE[0]%/*}/.." && pwd -P) || exit 1
+repo_root=$(CDPATH='' cd "${BASH_SOURCE[0]%/*}/.." && pwd -P) || exit 1
 status=0
 
 for suite in \
-  "$repo_root/test/cli-test" \
-  "$repo_root/test/gstack-cache-test" \
-  "$repo_root/test/gstack-register-test" \
-  "$repo_root/test/gstack-opencode-test" \
-  "$repo_root/test/gstack-agents-test" \
-  "$repo_root/test/gstack-provenance-test" \
-  "$repo_root/test/install-test"; do
+  test/cli-test \
+  test/gstack-cache-test \
+  test/gstack-register-test \
+  test/gstack-opencode-test \
+  test/gstack-agents-test \
+  test/gstack-provenance-test \
+  test/install-test; do
   printf '=== %s ===\n' "${suite##*/}"
-  "$suite" || status=1
+  (
+    cd -P -- "$repo_root" || exit 1
+    CDPATH=. "$suite"
+  ) || status=1
 done
 
 if [[ "${GSTACK_REGISTER_SKIP_SHELLCHECK:-0}" != 1 ]] &&
