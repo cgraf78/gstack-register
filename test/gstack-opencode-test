@@ -112,20 +112,19 @@ ln -s \
 
 saved_home=$HOME
 saved_path=$PATH
+fixture_tools=$(_fixture_tools) || exit 1
 real_ln=$(command -v ln)
 real_rm=$(command -v rm)
 HOME=$fixture_home
-PATH="$mock_bin:/usr/bin:/bin"
+PATH="$mock_bin:$fixture_tools"
 export HOME PATH
+unset GSTACK_REGISTER_OPENCODE_COMMAND
 export GSTACK_OPENCODE_BUN_LOG=$bun_log
 export GSTACK_OPENCODE_SETUP_LOG=$setup_log
 export GSTACK_OPENCODE_REAL_LN=$real_ln
 export GSTACK_OPENCODE_REAL_RM=$real_rm
 # shellcheck source=../gstack-register/api.sh
 . "$source_home/lib/gstack-register/api.sh"
-
-eval "$(declare -f _gstack_register_has_agent | sed \
-  '1s/_gstack_register_has_agent/_original_gstack_register_has_agent/')"
 
 cat >"$mock_bin/compatible-opencode" <<'SH'
 #!/usr/bin/env bash
@@ -134,27 +133,19 @@ SH
 chmod +x "$mock_bin/compatible-opencode"
 GSTACK_REGISTER_OPENCODE_COMMAND=compatible-opencode
 export GSTACK_REGISTER_OPENCODE_COMMAND
-if _original_gstack_register_has_agent opencode; then
+if _gstack_register_has_agent opencode; then
   _pass "OpenCode: compatible command override enables registration"
 else
   _fail "OpenCode: compatible command override enables registration"
 fi
 rm -f "$mock_bin/compatible-opencode"
 hash -r
-if _original_gstack_register_has_agent opencode; then
+if _gstack_register_has_agent opencode; then
   _fail "OpenCode: command override does not fall back to a different executable"
 else
   _pass "OpenCode: command override does not fall back to a different executable"
 fi
 unset GSTACK_REGISTER_OPENCODE_COMMAND
-
-_gstack_register_has_agent() {
-  if [ "$1" = "opencode" ]; then
-    [ -x "$mock_bin/opencode" ]
-    return
-  fi
-  _original_gstack_register_has_agent "$@"
-}
 
 eval "$(declare -f _gstack_register_opencode | sed \
   '1s/_gstack_register_opencode/_original_gstack_register_opencode/')"

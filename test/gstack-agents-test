@@ -10,6 +10,9 @@ repo_root=$(cd "${BASH_SOURCE[0]%/*}/.." && pwd -P) || exit 1
 # shellcheck source=lib/test.sh
 . "$repo_root/test/lib/test.sh"
 
+fixture_tools=$(_fixture_tools) || exit 1
+unset GSTACK_REGISTER_OPENCODE_COMMAND
+
 REAL_HOME=$repo_root
 
 _gstack_home=$(_tmpdir)
@@ -165,7 +168,7 @@ chmod +x "$_gstack_agent_bin/codex" "$_gstack_agent_bin/gemini" \
 _saved_home=$HOME
 _saved_path=$PATH
 HOME=$_gstack_home
-PATH="$_gstack_agent_bin:$PATH"
+PATH="$_gstack_agent_bin:$fixture_tools"
 export HOME PATH
 export GSTACK_HOOK_LOG=$_gstack_log
 export GSTACK_MUSE_LOG=$_gstack_muse_log
@@ -776,7 +779,7 @@ _gstack_saved_muse_log=$GSTACK_MUSE_LOG
 HOME=$_gstack_muse_stale_home
 # Keep this fixture independent of host-installed agents: only the mock Codex
 # and Muse CLIs may resolve.
-PATH="$_gstack_muse_stale_bin:/usr/bin:/bin"
+PATH="$_gstack_muse_stale_bin:$fixture_tools"
 GSTACK_MUSE_LOG=$_gstack_muse_stale_log
 export HOME PATH GSTACK_MUSE_LOG
 : >"$GSTACK_MUSE_LOG"
@@ -937,7 +940,7 @@ _saved_path=$PATH
 HOME=$_gstack_merge_home
 # Keep this migration fixture independent of host-installed agents: it models a
 # Codex-only machine, so a real /usr/local/bin/gemini must not affect results.
-PATH="$_gstack_merge_agent_bin:/usr/bin:/bin"
+PATH="$_gstack_merge_agent_bin:$fixture_tools"
 export GSTACK_MERGE_LOG=$_gstack_merge_log
 
 # shellcheck source=../lib/gstack-register/api.sh
@@ -1092,7 +1095,7 @@ chmod +x "$_gstack_muse_absent_bin/codex"
 _saved_home=$HOME
 _saved_path=$PATH
 HOME=$_gstack_muse_absent_home
-PATH="$_gstack_muse_absent_bin:/usr/bin:/bin"
+PATH="$_gstack_muse_absent_bin:$fixture_tools"
 export HOME PATH
 
 # shellcheck source=../lib/gstack-register/api.sh
@@ -1511,7 +1514,7 @@ chmod +x "$_gstack_ga_bin/grok"
 _saved_home=$HOME
 _saved_path=$PATH
 HOME=$_gstack_ga_home
-PATH="$_gstack_ga_bin:/usr/bin:/bin"
+PATH="$_gstack_ga_bin:$fixture_tools"
 export HOME PATH
 
 # shellcheck source=../lib/gstack-register/api.sh
@@ -1681,7 +1684,7 @@ SH
   HOME=$_agree_h
   # Keep each iteration independent of host-installed agents: only that
   # agent's mock command may resolve.
-  PATH="$_agree_bin:/usr/bin:/bin"
+  PATH="$_agree_bin:$fixture_tools"
   export HOME PATH
   if [ "$agent" = "muse" ]; then
     GSTACK_MUSE_LOG=$_agree_log

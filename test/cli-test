@@ -86,11 +86,9 @@ mkdir -p "$source_dir/qa" "$source_dir/browse" \
   "$xdg_config/gstack-register" "$mock_bin" \
   "$home/.claude/skills/manual"
 
-# The CLI uses `#!/usr/bin/env bash`, so keep the matrix-selected interpreter
-# reachable while isolating agent discovery below. In particular, omitting
-# Homebrew's bin directory on macOS would select Apple's unsupported Bash 3.2
-# and test a different runtime than the shared macOS job selected for us.
-test_path="$mock_bin:${BASH%/*}:/usr/bin:/bin"
+fixture_tools=$(_fixture_tools) || exit 1
+test_path="$mock_bin:$fixture_tools"
+unset GSTACK_REGISTER_OPENCODE_COMMAND
 cat >"$source_dir/SKILL.md" <<'MD'
 ---
 name: gstack
